@@ -28,9 +28,6 @@ jobs:
       - name: Initialize devenv
         run: devenv ci
 
-      - name: Run tests
-        run: devenv shell gotestsum --format pkgname -- ./... -v
-
   test-windows:
     name: Test Windows
     runs-on: windows-latest
@@ -46,5 +43,8 @@ jobs:
       - name: Install gotestsum
         run: go install gotest.tools/gotestsum@latest
 
+      - name: Install gotestdox
+        run: go install github.com/bitfield/gotestdox/cmd/gotestdox@latest
+
       - name: Run tests
-        run: gotestsum --format pkgname -- ./... -v
+        run: gotestsum -f testdox --format-hide-empty-pkg -- -race ./...

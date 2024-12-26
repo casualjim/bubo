@@ -16,8 +16,6 @@
   # https://devenv.sh/packages/
   packages = [
     pkgs.git
-    pkgs.gotestsum
-    pkgs.gotestfmt
     pkgs.protoc-gen-go
     pkgs.protoc-gen-go
     pkgs.templ
@@ -28,6 +26,9 @@
     pkgs.golint
     pkgs.gofumpt
     pkgs.golangci-lint
+    pkgs.gotestsum
+    pkgs.gotestfmt
+    pkgs.gotestdox
   ];
 
   # https://devenv.sh/languages/
@@ -62,8 +63,7 @@
   # https://devenv.sh/tests/
   enterTest = ''
     echo "Running tests"
-    git --version | grep --color=auto "${pkgs.git.version}"
-    ${pkgs.gotestsum}/bin/gotestsum
+    ${pkgs.gotestsum}/bin/gotestsum -f testdox --format-hide-empty-pkg -- -race ./...
   '';
 
   # https://devenv.sh/pre-commit-hooks/

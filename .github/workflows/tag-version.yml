@@ -1,0 +1,35 @@
+name: Auto Tag Version
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create and push tag
+        run: |-
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          # Get latest tag
+          latest_tag="$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")"
+          # Bump patch version
+          new_tag="$(echo "$latest_tag" | awk -F. -v OFS=. '{$NF = $NF + 1;} 1')"
+          # Create and push tag
+          git tag "$new_tag"
+          git push origin "$new_tag"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

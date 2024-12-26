@@ -8,9 +8,8 @@
 
 {
   # https://devenv.sh/basics/
-  env.GREET = "devenv";
 
-  dotenv.enable = true;
+  dotenv.enable = false;
   difftastic.enable = true;
 
   # https://devenv.sh/packages/
@@ -18,17 +17,17 @@
     pkgs.git
     pkgs.protoc-gen-go
     pkgs.protoc-gen-go
-    pkgs.templ
     pkgs.go
-    pkgs.gotools
-    pkgs.govulncheck
-    pkgs.gopls
     pkgs.golint
     pkgs.gofumpt
     pkgs.golangci-lint
+    pkgs.gopls
+    pkgs.goreleaser
     pkgs.gotestsum
     pkgs.gotestfmt
     pkgs.gotestdox
+    pkgs.gotools
+    pkgs.govulncheck
   ];
 
   # https://devenv.sh/languages/
@@ -45,14 +44,14 @@
   # services.postgres.enable = true;
 
   # https://devenv.sh/scripts/
-  scripts.hello.exec = ''
-    echo hello from $GREET
-  '';
+  # scripts.hello.exec = ''
+  #   echo hello from $GREET
+  # '';
 
-  enterShell = ''
-    hello
-    git --version
-  '';
+  # enterShell = ''
+  #   hello
+  #   git --version
+  # '';
 
   # https://devenv.sh/tasks/
   # tasks = {

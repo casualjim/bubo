@@ -1,0 +1,40 @@
+version: 2
+
+project_name: bubo
+
+before:
+  hooks:
+    - go mod tidy
+
+# Since this is a library, we don't build any binaries
+builds:
+  - skip: true
+
+# Git configuration
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "README"
+      - Merge pull request
+      - Merge branch
+
+# GitHub release configuration
+release:
+  github:
+    owner: casualjim
+    name: bubo
+  draft: false
+  prerelease: auto
+  mode: replace
+  footer: |
+    ## Installation
+    ```sh
+    go get github.com/casualjim/bubo@{{.Tag}}
+    ```
+
+git:
+  tag_sort: "-version:refname"

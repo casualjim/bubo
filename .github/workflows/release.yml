@@ -1,9 +1,11 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
+    branches: [main]
 
 permissions:
   contents: write # needed to create releases
@@ -28,6 +30,6 @@ jobs:
         with:
           distribution: goreleaser
           version: latest
-          args: release --clean
+          args: release --clean --auto-snapshot
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

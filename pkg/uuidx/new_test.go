@@ -10,8 +10,8 @@ import (
 func TestNew(t *testing.T) {
 	// Test that New() returns a valid UUID
 	id := New()
-	assert.Equal(t, uuid.Version(0x7), id.Version(), "UUID should be version 7")
-	assert.Equal(t, uuid.Variant(0x2), id.Variant(), "UUID should have RFC4122 variant")
+	assert.Equal(t, uuid.Version(7), id.Version(), "UUID should be version 7")
+	assert.Equal(t, uuid.RFC4122, id.Variant(), "UUID should have RFC4122 variant")
 
 	// Test uniqueness
 	id2 := New()
@@ -23,8 +23,8 @@ func TestNewString(t *testing.T) {
 	idStr := NewString()
 	id, err := uuid.Parse(idStr)
 	assert.NoError(t, err, "NewString should return a valid UUID string")
-	assert.Equal(t, uuid.Version(0x7), id.Version(), "UUID should be version 7")
-	assert.Equal(t, uuid.Variant(0x2), id.Variant(), "UUID should have RFC4122 variant")
+	assert.Equal(t, uuid.Version(7), id.Version(), "UUID should be version 7")
+	assert.Equal(t, uuid.RFC4122, id.Variant(), "UUID should have RFC4122 variant")
 
 	// Test uniqueness
 	idStr2 := NewString()

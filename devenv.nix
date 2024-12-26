@@ -14,6 +14,7 @@
 
   # https://devenv.sh/packages/
   packages = [
+    pkgs.actionlint
     pkgs.git
     pkgs.protoc-gen-go
     pkgs.protoc-gen-go
@@ -78,6 +79,15 @@
       description = "Run golangci-lint on Go files";
       entry = "${pkgs.golangci-lint}/bin/golangci-lint run";
       types = [ "go" ];
+      require_serial = true;
+      pass_filenames = false;
+    };
+    actionlint = {
+      enable = true;
+      name = "actionlint";
+      description = "Lint GitHub Actions workflow files";
+      entry = "${pkgs.actionlint}/bin/actionlint";
+      files = "^.github/workflows/.*\\.(yaml|yml)$";
       require_serial = true;
       pass_filenames = false;
     };

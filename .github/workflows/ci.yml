@@ -7,30 +7,13 @@ on:
     branches: [main]
 
 jobs:
-  test-unix:
-    name: Test Unix
+  test:
+    name: Test
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@main
-
-      - uses: DeterminateSystems/magic-nix-cache-action@main
-
-      - name: Install devenv.sh
-        run: nix profile install tarball+https://install.devenv.sh/latest
-
-      - name: Initialize devenv
-        run: devenv ci
-
-  test-windows:
-    name: Test Windows
-    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -39,6 +22,12 @@ jobs:
         with:
           go-version: "1.23.x"
           cache: true
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
 
       - name: Install gotestsum
         run: go install gotest.tools/gotestsum@latest

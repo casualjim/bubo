@@ -63,6 +63,7 @@
   enterTest = ''
     echo "Running tests"
     git --version | grep --color=auto "${pkgs.git.version}"
+    ${pkgs.gotestsum}/bin/gotestsum
   '';
 
   # https://devenv.sh/pre-commit-hooks/

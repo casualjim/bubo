@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Install devenv.sh
+        run: nix profile install tarball+https://install.devenv.sh/latest
+
+      - name: Initialize devenv
+        run: devenv ci
+
+      - name: Run lint
+        run: devenv shell golangci-lint run --timeout=5m
+
+  test-unix:
+    name: Test Unix
+    needs: lint
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Install devenv.sh
+        run: nix profile install tarball+https://install.devenv.sh/latest
+
+      - name: Initialize devenv
+        run: devenv ci
+
+      - name: Run tests
+        run: devenv shell gotestsum --format pkgname -- ./... -v
+
+  test-windows:
+    name: Test Windows
+    needs: lint
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.x"
+          cache: true
+
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@latest
+
+      - name: Run tests
+        run: gotestsum --format pkgname -- ./... -v

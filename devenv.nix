@@ -1,4 +1,10 @@
-{ pkgs, lib, config, inputs, ... }:
+{
+  pkgs,
+  lib,
+  config,
+  inputs,
+  ...
+}:
 
 {
   # https://devenv.sh/basics/
@@ -8,7 +14,7 @@
   difftastic.enable = true;
 
   # https://devenv.sh/packages/
-  packages = [ 
+  packages = [
     pkgs.git
     pkgs.gotestsum
     pkgs.gotestfmt
@@ -60,8 +66,22 @@
   '';
 
   # https://devenv.sh/pre-commit-hooks/
-  pre-commit.hooks.shellcheck.enable = true;
-  pre-commit.hooks.shfmt.enable = true;
+  pre-commit.hooks = {
+    shellcheck.enable = true;
+    shfmt.enable = true;
+    gofmt.enable = true;
+    nixfmt-rfc-style.enable = true;
+    golangci-lint = {
+      enable = true;
+      language = "golang";
+      name = "golangci-lint";
+      description = "Run golangci-lint on Go files";
+      entry = "${pkgs.golangci-lint}/bin/golangci-lint run";
+      types = [ "go" ];
+      require_serial = true;
+      pass_filenames = false;
+    };
+  };
 
   # See full reference at https://devenv.sh/reference/options/
 }

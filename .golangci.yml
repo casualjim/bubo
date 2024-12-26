@@ -1,0 +1,50 @@
+linters:
+  disable-all: true
+  enable:
+    - errcheck # Check for unchecked errors
+    - gosec # Security checks
+    - govet # Reports suspicious constructs
+    - staticcheck # Go static analysis
+    - unused # Check for unused constants, variables, functions and types
+    - gofmt # Check if code was gofmt-ed
+    - goimports # Check import grouping and formatting
+    - misspell # Find commonly misspelled English words
+    - prealloc # Find slice declarations that could potentially be preallocated
+    - errorlint # Find error handling issues
+    - gosimple # Simplify code
+    - ineffassign # Detect ineffective assignments
+    - typecheck # Parser and type-checker
+    - unparam # Find unused function parameters
+    - whitespace # Tool for whitespace style
+
+linters-settings:
+  gosec:
+    excludes:
+      - G404 # Insecure random number source (math/rand)
+      - G501 # Import blocklist: crypto/md5
+  errorlint:
+    errorf: true
+    asserts: true
+    comparison: true
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gosec
+        - errcheck
+
+  max-same-issues: 30
+
+run:
+  timeout: 5m
+  tests: true
+  allow-parallel-runners: true
+  build-tags:
+    - integration
+    - test
+
+output:
+  sort-results: true
+  print-issued-lines: true
+  print-linter-name: true

@@ -3,6 +3,7 @@
 package messages
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"strings"
@@ -232,8 +233,39 @@ func (i *ImageContentPart) UnmarshalJSON(input []byte) error {
 
 // InputAudio contains the data and format information for audio content.
 type InputAudio struct {
-	Data   string `json:"data"`   // Base64 encoded audio data
+	Data   []byte `json:"-"`      // Raw audio data
 	Format string `json:"format"` // Audio format specification
+}
+
+// MarshalJSON implements json.Marshaler interface for InputAudio.
+// Encodes the Data field as base64 in the JSON output.
+func (i InputAudio) MarshalJSON() ([]byte, error) {
+	type Alias InputAudio
+	return json.Marshal(&struct {
+		Data string `json:"data"`
+		*Alias
+	}{
+		Data:  base64.StdEncoding.EncodeToString(i.Data),
+		Alias: (*Alias)(&i),
+	})
+}
+
+// UnmarshalJSON implements json.Unmarshaler interface for InputAudio.
+// Decodes the base64 encoded data field from JSON into the Data byte slice.
+func (i *InputAudio) UnmarshalJSON(data []byte) error {
+	type Alias InputAudio
+	aux := &struct {
+		Data string `json:"data"`
+		*Alias
+	}{
+		Alias: (*Alias)(i),
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	var err error
+	i.Data, err = base64.StdEncoding.DecodeString(aux.Data)
+	return err
 }
 
 // AudioContentPart represents an audio content part.
@@ -263,24 +295,29 @@ func (i *AudioContentPart) UnmarshalJSON(input []byte) error {
 		return fmt.Errorf("invalid json for audio part")
 	}
 
-	inputAudio := gjson.GetBytes(input, "input_audio")
-	if !inputAudio.Exists() {
+	audioJson := gjson.GetBytes(input, "input_audio")
+	if !audioJson.Exists() {
 		return fmt.Errorf("missing required field 'input_audio'")
 	}
 
-	if !inputAudio.IsObject() {
+	if !audioJson.IsObject() {
 		return fmt.Errorf("'input_audio' must be an object")
 	}
 
-	data := inputAudio.Get("data")
-	format := inputAudio.Get("format")
+	data := audioJson.Get("data")
+	format := audioJson.Get("format")
 
 	if !data.Exists() || !format.Exists() {
 		return fmt.Errorf("input_audio requires both 'data' and 'format' fields")
 	}
 
+	decodedData, err := base64.StdEncoding.DecodeString(data.String())
+	if err != nil {
+		return fmt.Errorf("invalid base64 data: %w", err)
+	}
+
 	i.InputAudio = InputAudio{
-		Data:   data.String(),
+		Data:   decodedData,
 		Format: format.String(),
 	}
 

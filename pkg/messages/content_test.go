@@ -58,10 +58,10 @@ func TestContentOrParts_MarshalJSON(t *testing.T) {
 			name: "single audio part",
 			content: ContentOrParts{
 				Parts: []ContentPart{
-					AudioContentPart{InputAudio: InputAudio{Data: "base64data", Format: "mp3"}},
+					AudioContentPart{InputAudio: InputAudio{Data: []byte("test audio data"), Format: "mp3"}},
 				},
 			},
-			want: `[{"type":"audio","input_audio":{"data":"base64data","format":"mp3"}}]`,
+			want: `[{"type":"audio","input_audio":{"data":"dGVzdCBhdWRpbyBkYXRh","format":"mp3"}}]`,
 		},
 		{
 			name: "multiple mixed parts",
@@ -69,10 +69,10 @@ func TestContentOrParts_MarshalJSON(t *testing.T) {
 				Parts: []ContentPart{
 					TextContentPart{Text: "hello"},
 					ImageContentPart{URL: "http://example.com/image.jpg"},
-					AudioContentPart{InputAudio: InputAudio{Data: "base64data", Format: "mp3"}},
+					AudioContentPart{InputAudio: InputAudio{Data: []byte("test audio data"), Format: "mp3"}},
 				},
 			},
-			want: `[{"type":"text","text":"hello"},{"type":"image","image_url":"http://example.com/image.jpg"},{"type":"audio","input_audio":{"data":"base64data","format":"mp3"}}]`,
+			want: `[{"type":"text","text":"hello"},{"type":"image","image_url":"http://example.com/image.jpg"},{"type":"audio","input_audio":{"data":"dGVzdCBhdWRpbyBkYXRh","format":"mp3"}}]`,
 		},
 	}
 
@@ -146,10 +146,10 @@ func TestContentOrParts_UnmarshalJSON(t *testing.T) {
 		},
 		{
 			name:  "single audio part",
-			input: `[{"type":"audio","input_audio":{"data":"base64data","format":"mp3"}}]`,
+			input: `[{"type":"audio","input_audio":{"data":"dGVzdCBhdWRpbyBkYXRh","format":"mp3"}}]`,
 			want: ContentOrParts{
 				Parts: []ContentPart{
-					AudioContentPart{InputAudio: InputAudio{Data: "base64data", Format: "mp3"}},
+					AudioContentPart{InputAudio: InputAudio{Data: []byte("test audio data"), Format: "mp3"}},
 				},
 			},
 		},
@@ -444,10 +444,10 @@ func TestAudioContentPart(t *testing.T) {
 	}{
 		{
 			name:  "valid audio part",
-			input: `{"type":"audio","input_audio":{"data":"base64data","format":"mp3"}}`,
+			input: `{"type":"audio","input_audio":{"data":"dGVzdCBhdWRpbyBkYXRh","format":"mp3"}}`,
 			want: AudioContentPart{
 				InputAudio: InputAudio{
-					Data:   "base64data",
+					Data:   []byte("test audio data"),
 					Format: "mp3",
 				},
 			},
@@ -457,7 +457,7 @@ func TestAudioContentPart(t *testing.T) {
 			input: `{"type":"audio","input_audio":{"data":"","format":""}}`,
 			want: AudioContentPart{
 				InputAudio: InputAudio{
-					Data:   "",
+					Data:   []byte{},
 					Format: "",
 				},
 			},
@@ -618,7 +618,7 @@ func BenchmarkContentOrParts(b *testing.B) {
 		Parts: []ContentPart{
 			TextContentPart{Text: "hello"},
 			ImageContentPart{URL: "http://example.com/image.jpg"},
-			AudioContentPart{InputAudio: InputAudio{Data: "base64data", Format: "mp3"}},
+			AudioContentPart{InputAudio: InputAudio{Data: []byte("test audio data"), Format: "mp3"}},
 		},
 	}
 

@@ -1,5 +1,7 @@
 package messages
 
+import "github.com/go-openapi/strfmt"
+
 type Message interface {
 	message()
 }
@@ -14,24 +16,25 @@ type Response interface {
 
 type Instructions struct {
 	Content string `json:"content"`
-	Name    string `json:"name,omitempty"`
+	Sender  string `json:"sender,omitempty"`
 }
 
 func (Instructions) message() {}
 
 type UserPrompt struct {
-	Content ContentOrParts `json:"content"`
-	Name    string         `json:"name,omitempty"`
+	Content   ContentOrParts  `json:"content"`
+	Sender    string          `json:"sender,omitempty"`
+	Timestamp strfmt.DateTime `json:"timestamp"`
 }
 
 func (UserPrompt) message() {}
 func (UserPrompt) request() {}
 
 type AssistantMessage struct {
-	Content      string `json:"content"`
-	Refusal      string `json:"refusal,omitempty"`
-	Name         string `json:"name,omitempty"`
-	FinishReason string `json:"finish_reason,omitempty"`
+	Content   string          `json:"content"`
+	Refusal   string          `json:"refusal,omitempty"`
+	Sender    string          `json:"sender,omitempty"`
+	Timestamp strfmt.DateTime `json:"timestamp"`
 }
 
 func (AssistantMessage) message()  {}
@@ -43,21 +46,30 @@ type ToolCallData struct {
 }
 
 type ToolCall struct {
-	ID       string         `json:"id"`
-	Function []ToolCallData `json:"function"`
+	ID        string          `json:"id"`
+	Function  []ToolCallData  `json:"function"`
+	Sender    string          `json:"sender,omitempty"`
+	Timestamp strfmt.DateTime `json:"timestamp"`
 }
 
 func (ToolCall) message()  {}
 func (ToolCall) response() {}
 
-type ToolResponse struct{}
+type ToolResponse struct {
+	ToolName   string          `json:"tool_name"`
+	ToolCallID string          `json:"tool_call_id"`
+	Content    string          `json:"content"`
+	Timestamp  strfmt.DateTime `json:"timestamp"`
+}
 
 func (ToolResponse) message() {}
 func (ToolResponse) request() {}
 
 type Retry struct {
-	Error error
-	Count int
+	Error      error           `json:"error"`
+	ToolName   string          `json:"tool_name,omitempty"`
+	ToolCallID string          `json:"tool_call_id,omitempty"`
+	Timestamp  strfmt.DateTime `json:"timestamp"`
 }
 
 func (Retry) message() {}

@@ -36,11 +36,11 @@ jobs:
         run: go install github.com/bitfield/gotestdox/cmd/gotestdox@latest
 
       - name: Run tests
-        run: gotestsum -f testdox --format-hide-empty-pkg -- -coverprofile=build/cover.out -covermode=atomic -race ./...
+        run: gotestsum -f testdox --format-hide-empty-pkg -- -coverprofile=cover.out -covermode=atomic -race ./...
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
-          files: build/cover.out
+          files: cover.out
           fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}

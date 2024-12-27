@@ -24,6 +24,8 @@
       in
       {
         checks = {
+          # Add the pre-commit hooks. Some are not supported by default
+          # so we add them manually.
           pre-commit-check = pre-commit-hooks.lib.${system}.run {
             src = ./.;
             hooks = {

@@ -12,14 +12,14 @@ func TestMustAgentFunction(t *testing.T) {
 
 	t.Run("valid function", func(t *testing.T) {
 		assert.NotPanics(t, func() {
-			def := MustAgentFunction(testFunc)
+			def := MustAgentTool(testFunc)
 			assert.Equal(t, reflect.ValueOf(testFunc).Pointer(), reflect.ValueOf(def.Function).Pointer())
 		})
 	})
 
 	t.Run("invalid function", func(t *testing.T) {
 		assert.Panics(t, func() {
-			MustAgentFunction("not a function")
+			MustAgentTool("not a function")
 		})
 	})
 }

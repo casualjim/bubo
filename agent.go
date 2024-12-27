@@ -33,8 +33,8 @@ type Agent interface {
 	// Instructions returns the agent's instructions
 	Instructions() string
 
-	// Functions returns the agent's function definitions
-	Functions() []AgentFunctionDefinition
+	// Tools returns the agent's function definitions
+	Tools() []AgentToolDefinition
 
 	// ToolChoice returns the agent's tool choice
 	ToolChoice() string
@@ -52,7 +52,7 @@ type DefaultAgent struct {
 	name              string
 	model             string
 	instructions      string
-	functions         []AgentFunctionDefinition
+	tools             []AgentToolDefinition
 	toolChoice        string
 	parallelToolCalls bool
 }
@@ -72,9 +72,9 @@ func (a *DefaultAgent) Instructions() string {
 	return a.instructions
 }
 
-// Functions returns the agent's function definitions.
-func (a *DefaultAgent) Functions() []AgentFunctionDefinition {
-	return a.functions
+// Tools returns the agent's function definitions.
+func (a *DefaultAgent) Tools() []AgentToolDefinition {
+	return a.tools
 }
 
 // ToolChoice returns the agent's tool choice.
@@ -108,14 +108,14 @@ func renderTemplate(name, templateStr string, cv ContextVars) (string, error) {
 	return buf.String(), nil
 }
 
-// AddFunction adds a function definition to the agent.
-func (a *DefaultAgent) AddFunction(f1 AgentFunctionDefinition, frest ...AgentFunctionDefinition) {
-	a.functions = append(a.functions, append([]AgentFunctionDefinition{f1}, frest...)...)
+// AddTool adds a function definition to the agent.
+func (a *DefaultAgent) AddTool(f1 AgentToolDefinition, frest ...AgentToolDefinition) {
+	a.tools = append(a.tools, append([]AgentToolDefinition{f1}, frest...)...)
 }
 
-// WithFunction adds a function definition to the agent.
-func (a *DefaultAgent) WithFunction(f1 AgentFunctionDefinition, frest ...AgentFunctionDefinition) *DefaultAgent {
-	a.functions = append(a.functions, append([]AgentFunctionDefinition{f1}, frest...)...)
+// WithTool adds a function definition to the agent.
+func (a *DefaultAgent) WithTool(f1 AgentToolDefinition, frest ...AgentToolDefinition) *DefaultAgent {
+	a.tools = append(a.tools, append([]AgentToolDefinition{f1}, frest...)...)
 	return a
 }
 

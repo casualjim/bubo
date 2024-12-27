@@ -6,7 +6,7 @@ import (
 	"github.com/fogfish/opts"
 )
 
-// WithFunctionName returns a function that sets the Name field of
+// WithToolName returns a function that sets the Name field of
 // agentFunctionOptions to the provided name. This can be used to
 // configure an agent function with a specific name.
 //
@@ -15,14 +15,14 @@ import (
 //
 // Returns:
 //   - A function that takes a pointer to agentFunctionOptions and sets its Name field.
-var WithFunctionName = opts.ForName[AgentFunctionDefinition, string]("Name")
+var WithToolName = opts.ForName[AgentToolDefinition, string]("Name")
 
-// WithFunctionDescription returns a function that sets the description of an agent function.
+// WithToolDescription returns a function that sets the description of an agent function.
 // It takes a string parameter 'description' and returns a function that modifies the
 // 'Description' field of the provided 'agentFunctionOptions' struct.
-var WithFunctionDescription = opts.ForName[AgentFunctionDefinition, string]("Description")
+var WithToolDescription = opts.ForName[AgentToolDefinition, string]("Description")
 
-// WithFunctionParameters returns a function that sets the Parameters field
+// WithToolParameters returns a function that sets the Parameters field
 // of agentFunctionOptions to a map where each parameter is assigned a key
 // in the format "paramN", where N is the index of the parameter in the input slice.
 //
@@ -33,8 +33,8 @@ var WithFunctionDescription = opts.ForName[AgentFunctionDefinition, string]("Des
 // Returns:
 //
 //	A function that takes a pointer to agentFunctionOptions and sets its Parameters field.
-func WithFunctionParameters(parameters ...string) opts.Option[AgentFunctionDefinition] {
-	return opts.Type[AgentFunctionDefinition](func(o *AgentFunctionDefinition) error {
+func WithToolParameters(parameters ...string) opts.Option[AgentToolDefinition] {
+	return opts.Type[AgentToolDefinition](func(o *AgentToolDefinition) error {
 		o.Parameters = make(map[string]string, len(parameters))
 		for i, p := range parameters {
 			o.Parameters[fmt.Sprintf("param%d", i)] = p

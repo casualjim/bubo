@@ -21,7 +21,7 @@ func TestDefaultAgent(t *testing.T) {
 		assert.Equal(t, "test instructions", agent.Instructions())
 		assert.Equal(t, "auto", agent.ToolChoice())
 		assert.False(t, agent.ParallelToolCalls())
-		assert.Empty(t, agent.Functions())
+		assert.Empty(t, agent.Tools())
 	})
 }
 
@@ -33,37 +33,37 @@ func TestNewAgent(t *testing.T) {
 	assert.Equal(t, "instructions", agent.Instructions())
 	assert.Empty(t, agent.ToolChoice())
 	assert.True(t, agent.ParallelToolCalls())
-	assert.Empty(t, agent.Functions())
+	assert.Empty(t, agent.Tools())
 }
 
-func TestDefaultAgentFunctionManagement(t *testing.T) {
+func TestDefaultAgentToolManagement(t *testing.T) {
 	agent := NewAgent("test", "gpt-4", "instructions")
 
 	testFunc := func() {}
-	def1, err := AgentFunction(testFunc, WithFunctionName("func1"))
+	def1, err := AgentTool(testFunc, WithToolName("func1"))
 	require.NoError(t, err)
 
-	def2, err := AgentFunction(testFunc, WithFunctionName("func2"))
+	def2, err := AgentTool(testFunc, WithToolName("func2"))
 	require.NoError(t, err)
 
-	t.Run("AddFunction", func(t *testing.T) {
-		agent.AddFunction(def1)
-		assert.Len(t, agent.Functions(), 1)
-		assert.Equal(t, "func1", agent.Functions()[0].Name)
+	t.Run("AddTool", func(t *testing.T) {
+		agent.AddTool(def1)
+		assert.Len(t, agent.Tools(), 1)
+		assert.Equal(t, "func1", agent.Tools()[0].Name)
 
-		agent.AddFunction(def2)
-		assert.Len(t, agent.Functions(), 2)
+		agent.AddTool(def2)
+		assert.Len(t, agent.Tools(), 2)
 	})
 
-	t.Run("WithFunction", func(t *testing.T) {
+	t.Run("WithTool", func(t *testing.T) {
 		agent := NewAgent("test", "gpt-4", "instructions")
 
-		result := agent.WithFunction(def1)
+		result := agent.WithTool(def1)
 		assert.Same(t, agent, result)
-		assert.Len(t, agent.Functions(), 1)
+		assert.Len(t, agent.Tools(), 1)
 
-		agent.WithFunction(def2)
-		assert.Len(t, agent.Functions(), 2)
+		agent.WithTool(def2)
+		assert.Len(t, agent.Tools(), 2)
 	})
 }
 

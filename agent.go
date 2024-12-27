@@ -9,8 +9,13 @@ import (
 	"github.com/openai/openai-go"
 )
 
+// ContextVars represents a key-value store of context variables used for template rendering.
+// It maps string keys to values of any type. These variables can be used to customize
+// agent instructions through template substitution.
 type ContextVars map[string]any
 
+// String returns a JSON string representation of the ContextVars.
+// If marshaling fails, it returns an empty string.
 func (cv ContextVars) String() string {
 	jsonData, err := json.Marshal(cv)
 	if err != nil {
@@ -42,6 +47,7 @@ type Agent interface {
 	// ParallelToolCalls returns whether the agent supports parallel tool calls
 	ParallelToolCalls() bool
 
+	// RenderInstructions renders the agent's instructions with the provided context variables.
 	RenderInstructions(ContextVars) (string, error)
 }
 
@@ -87,6 +93,7 @@ func (a *DefaultAgent) ParallelToolCalls() bool {
 	return a.parallelToolCalls
 }
 
+// RenderInstructions renders the agent's instructions with the provided context variables.
 func (a *DefaultAgent) RenderInstructions(cv ContextVars) (string, error) {
 	if !strings.Contains(a.instructions, "{{") {
 		return a.instructions, nil

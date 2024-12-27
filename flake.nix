@@ -61,7 +61,7 @@
           };
         };
 
-        devShell = pkgs.mkShell {
+        devShells.default = pkgs.mkShell {
           packages = with pkgs; [
             actionlint
             git
@@ -79,6 +79,7 @@
           ];
 
           shellHook = ''
+            go mod tidy
             ${self.checks.${system}.pre-commit-check.shellHook}
           '';
 

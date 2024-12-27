@@ -14,7 +14,6 @@ require (
 	github.com/stretchr/testify v1.10.0
 	github.com/tidwall/gjson v1.18.0
 	github.com/tidwall/sjson v1.2.5
-	google.golang.org/protobuf v1.36.1
 )
 
 require (
@@ -23,6 +22,7 @@ require (
 	github.com/fogfish/golem/hseq v1.2.0 // indirect
 	github.com/fogfish/golem/optics v0.13.1 // indirect
 	github.com/go-openapi/errors v0.22.0 // indirect
+	github.com/google/go-cmp v0.5.5 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect

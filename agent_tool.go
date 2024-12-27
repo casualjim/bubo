@@ -9,37 +9,37 @@ import (
 )
 
 // AgentToolOption is a type alias for a function that modifies
-// the configuration options of an agent function. It allows for
-// flexible and customizable configuration of agent functions by
+// the configuration options of an agent tool. It allows for
+// flexible and customizable configuration of agent tools by
 // applying various options.
 type AgentToolOption = opts.Option[AgentToolDefinition]
 
-// MustAgentTool wraps the AgentFunction call and ensures that any error
-// returned by AgentFunction is handled by panicking. It takes a function `f`
-// and a variadic number of AgentFunctionOption `options` as arguments, and
-// returns an AgentFunctionDefinition. If AgentFunction returns an error,
+// MustAgentTool wraps the AgentTool call and ensures that any error
+// returned by AgentTool is handled by panicking. It takes a function `f`
+// and a variadic number of AgentToolOption `options` as arguments, and
+// returns an AgentToolDefinition. If AgentTool returns an error,
 // MustAgentTool will panic.
 //
 // Parameters:
 //   - f: The function to be wrapped.
-//   - options: A variadic number of options to configure the agent function.
+//   - options: A variadic number of options to configure the agent tool.
 //
 // Returns:
-//   - AgentFunctionDefinition: The definition of the agent function.
+//   - AgentToolDefinition: The definition of the agent tool.
 func MustAgentTool(f any, options ...AgentToolOption) AgentToolDefinition {
 	return stdx.Must1(AgentTool(f, options...))
 }
 
-// AgentTool creates an AgentFunctionDefinition from the provided function and options.
-// The function is assigned to the Function field of the resulting AgentFunctionDefinition.
+// AgentTool creates an AgentToolDefinition from the provided function and options.
+// The function is assigned to the Function field of the resulting AgentToolDefinition.
 //
 // Parameters:
-//   - f: The function to be assigned to the AgentFunctionDefinition.
-//   - options: A variadic list of AgentFunctionOption to configure the AgentFunctionDefinition.
+//   - f: The function to be assigned to the AgentToolDefinition.
+//   - options: A variadic list of AgentToolOption to configure the AgentToolDefinition.
 //
 // Returns:
 //
-//	An AgentFunctionDefinition with the provided function and applied options.
+//	An AgentToolDefinition with the provided function and applied options.
 func AgentTool(f any, options ...AgentToolOption) (AgentToolDefinition, error) {
 	// validate that f is a function
 	if !reflectx.IsFunction(f) {
@@ -68,7 +68,7 @@ type AgentToolDefinition struct {
 }
 
 /*
-func (afd *AgentFunctionDefinition) ToOpenAI(reflector *jsonschema.Reflector) openai.ChatCompletionToolParam {
+func (afd *AgentToolDefinition) ToOpenAI(reflector *jsonschema.Reflector) openai.ChatCompletionToolParam {
 	if reflector == nil {
 		reflector = &jsonschema.Reflector{
 			AllowAdditionalProperties: true,

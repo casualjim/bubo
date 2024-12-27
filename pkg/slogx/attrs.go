@@ -3,9 +3,6 @@ package slogx
 import (
 	"fmt"
 	"log/slog"
-
-	"google.golang.org/protobuf/encoding/prototext"
-	"google.golang.org/protobuf/proto"
 )
 
 // Error returns a slog.Attr representing the provided error.
@@ -66,8 +63,4 @@ const (
 //	A slog.Attr containing the logger name.
 func LoggerName(name string) slog.Attr {
 	return slog.String(KeyLoggerName, name)
-}
-
-func Proto(key string, msg proto.Message) slog.Attr {
-	return slog.String(key, prototext.Format(msg))
 }

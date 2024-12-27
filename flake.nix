@@ -29,18 +29,6 @@
           pre-commit-check = pre-commit-hooks.lib.${system}.run {
             src = ./.;
             hooks = {
-              shellcheck.enable = true;
-              shfmt.enable = true;
-              gofmt.enable = true;
-              nixfmt-rfc-style.enable = true;
-              golangci-lint = {
-                enable = true;
-                name = "golangci-lint";
-                description = "Run golangci-lint on Go files";
-                entry = "${pkgs.golangci-lint}/bin/golangci-lint run";
-                types = [ "go" ];
-                pass_filenames = false;
-              };
               actionlint = {
                 enable = true;
                 name = "actionlint";
@@ -49,6 +37,26 @@
                 files = "^.github/workflows/.*\\.(yaml|yml)$";
                 pass_filenames = false;
               };
+              markdownlint.enable = true;
+              nixfmt-rfc-style.enable = true;
+              gofumpt = {
+                enable = true;
+                name = "gofumpt";
+                description = "Run gofumpt on Go files";
+                entry = "${pkgs.gofumpt}/bin/gofumpt -l -w";
+                files = "\\.go$";
+                pass_filenames = true;
+              };
+              golangci-lint = {
+                enable = true;
+                name = "golangci-lint";
+                description = "Run golangci-lint on Go files";
+                entry = "${pkgs.golangci-lint}/bin/golangci-lint run";
+                types = [ "go" ];
+                pass_filenames = false;
+              };
+              shellcheck.enable = true;
+              shfmt.enable = true;
             };
           };
         };
@@ -57,7 +65,6 @@
           packages = with pkgs; [
             actionlint
             git
-            protoc-gen-go
             go
             golint
             gofumpt

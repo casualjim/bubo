@@ -6,7 +6,7 @@ import (
 	"text/template"
 
 	"github.com/goccy/go-json"
-	"github.com/openai/openai-go"
+	openai "github.com/openai/openai-go"
 )
 
 // ContextVars represents a key-value store of context variables used for template rendering.

@@ -51,7 +51,7 @@
                 enable = true;
                 name = "golangci-lint";
                 description = "Run golangci-lint on Go files";
-                entry = "env PATH=${pkgs.go}/bin:$PATH ${pkgs.golangci-lint}/bin/golangci-lint run";
+                entry = "env CGO_ENABLED=1 GOROOT=${pkgs.go}/share/go PATH=${pkgs.go}/bin:$PATH ${pkgs.golangci-lint}/bin/golangci-lint run";
                 types = [ "go" ];
                 pass_filenames = false;
               };
@@ -64,6 +64,8 @@
         devShells.default = pkgs.mkShell {
           packages = with pkgs; [
             actionlint
+            gcc
+            pkg-config
             git
             go
             golint

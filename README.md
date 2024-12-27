@@ -4,7 +4,10 @@
 
 ## 🌟 Overview
 
-Bubo (named after the mechanical owl from "Clash of the Titans") is a framework for creating and orchestrating distributed AI agents using Temporal workflows. Just as a parliament of owls works together in nature, Bubo enables multiple AI agents to collaborate and operate autonomously within a distributed system.
+Bubo (named after the mechanical owl from "Clash of the Titans") is a framework for
+creating and orchestrating distributed AI agents using Temporal workflows.
+Just as a parliament of owls works together in nature, Bubo enables multiple AI agents
+to collaborate and operate autonomously within a distributed system.
 
 ## ✨ Key Features
 

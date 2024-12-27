@@ -51,7 +51,7 @@
                 enable = true;
                 name = "golangci-lint";
                 description = "Run golangci-lint on Go files";
-                entry = "${pkgs.golangci-lint}/bin/golangci-lint run";
+                entry = "env PATH=${pkgs.go}/bin:$PATH ${pkgs.golangci-lint}/bin/golangci-lint run";
                 types = [ "go" ];
                 pass_filenames = false;
               };
@@ -82,8 +82,6 @@
             ${self.checks.${system}.pre-commit-check.shellHook}
           '';
 
-          # Set GOROOT and other necessary Go environment variables
-          GOROOT = "${pkgs.go}/share/go";
         };
       }
     );

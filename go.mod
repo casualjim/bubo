@@ -14,6 +14,9 @@ require (
 require (
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/fogfish/golem/hseq v1.2.0 // indirect
+	github.com/fogfish/golem/optics v0.13.1 // indirect
+	github.com/fogfish/opts v0.0.4 // indirect
 	github.com/go-openapi/errors v0.22.0 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/oklog/ulid v1.3.1 // indirect

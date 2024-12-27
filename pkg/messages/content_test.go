@@ -642,3 +642,186 @@ func BenchmarkContentOrParts(b *testing.B) {
 		}
 	})
 }
+
+func TestContentValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		content ContentOrParts
+		want    string
+	}{
+		{
+			name: "content only",
+			content: ContentOrParts{
+				Content: "hello",
+			},
+			want: `"hello"`,
+		},
+		{
+			name: "parts only",
+			content: ContentOrParts{
+				Parts: []ContentPart{
+					TextContentPart{Text: "world"},
+				},
+			},
+			want: `[{"type":"text","text":"world"}]`,
+		},
+		{
+			name: "empty content should marshal to null",
+			content: ContentOrParts{
+				Content: "",
+			},
+			want: "null",
+		},
+		{
+			name: "whitespace content should marshal to null",
+			content: ContentOrParts{
+				Content: "   ",
+			},
+			want: "null",
+		},
+		{
+			name: "empty parts slice should marshal to empty array",
+			content: ContentOrParts{
+				Parts: []ContentPart{},
+			},
+			want: "[]",
+		},
+		{
+			name: "nil parts should marshal to null",
+			content: ContentOrParts{
+				Parts: nil,
+			},
+			want: "null",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data, err := json.Marshal(tt.content)
+			require.NoError(t, err)
+			assert.JSONEq(t, tt.want, string(data))
+
+			// Test round-trip if not expecting null
+			if tt.want != "null" {
+				var decoded ContentOrParts
+				err = json.Unmarshal(data, &decoded)
+				require.NoError(t, err)
+				reencoded, err := json.Marshal(decoded)
+				require.NoError(t, err)
+				assert.JSONEq(t, string(data), string(reencoded))
+			}
+		})
+	}
+}
+
+func TestSpecialCharacterHandling(t *testing.T) {
+	tests := []struct {
+		name    string
+		content interface{}
+		want    string
+	}{
+		{
+			name: "text part with special chars",
+			content: TextContentPart{
+				Text: "Hello\n\t\"'\\世界\u0000",
+			},
+			want: `{"type":"text","text":"Hello\n\t\"'\\世界\u0000"}`,
+		},
+		{
+			name: "refusal part with special chars",
+			content: RefusalContentPart{
+				Refusal: "Cannot<process>HTML&tags\n\r\t",
+			},
+			want: `{"type":"refusal","refusal":"Cannot\u003cprocess\u003eHTML\u0026tags\n\r\t"}`,
+		},
+		{
+			name: "image URL with special chars",
+			content: ImageContentPart{
+				URL: "https://example.com/image?name=test&size=large#fragment",
+			},
+			want: `{"type":"image","image_url":"https://example.com/image?name=test\u0026size=large#fragment"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := json.Marshal(tt.content)
+			require.NoError(t, err)
+			assert.JSONEq(t, tt.want, string(got))
+
+			// Test round-trip for each type
+			switch v := tt.content.(type) {
+			case TextContentPart:
+				var decoded TextContentPart
+				err = json.Unmarshal(got, &decoded)
+				require.NoError(t, err)
+				assert.Equal(t, v, decoded)
+			case RefusalContentPart:
+				var decoded RefusalContentPart
+				err = json.Unmarshal(got, &decoded)
+				require.NoError(t, err)
+				assert.Equal(t, v, decoded)
+			case ImageContentPart:
+				var decoded ImageContentPart
+				err = json.Unmarshal(got, &decoded)
+				require.NoError(t, err)
+				assert.Equal(t, v, decoded)
+			}
+		})
+	}
+}
+
+func TestAudioContentValidation(t *testing.T) {
+	tests := []struct {
+		name  string
+		audio AudioContentPart
+		want  string
+	}{
+		{
+			name: "valid audio part",
+			audio: AudioContentPart{
+				InputAudio: InputAudio{
+					Data:   []byte("test data"),
+					Format: "mp3",
+				},
+			},
+			want: `{"type":"audio","input_audio":{"data":"dGVzdCBkYXRh","format":"mp3"}}`,
+		},
+		{
+			name: "empty format",
+			audio: AudioContentPart{
+				InputAudio: InputAudio{
+					Data:   []byte("test data"),
+					Format: "",
+				},
+			},
+			want: `{"type":"audio","input_audio":{"data":"dGVzdCBkYXRh","format":""}}`,
+		},
+		{
+			name: "empty data",
+			audio: AudioContentPart{
+				InputAudio: InputAudio{
+					Data:   []byte{},
+					Format: "mp3",
+				},
+			},
+			want: `{"type":"audio","input_audio":{"data":"","format":"mp3"}}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data, err := json.Marshal(tt.audio)
+			require.NoError(t, err)
+			assert.JSONEq(t, tt.want, string(data))
+
+			// Test round-trip
+			var decoded AudioContentPart
+			err = json.Unmarshal(data, &decoded)
+			require.NoError(t, err)
+			reencoded, err := json.Marshal(decoded)
+			require.NoError(t, err)
+			assert.JSONEq(t, string(data), string(reencoded))
+		})
+	}
+}

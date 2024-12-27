@@ -20,6 +20,7 @@ var jsonNull = []byte(`null`)
 type ContentOrParts struct {
 	Content string        // Raw string content, used when the message is just text
 	Parts   []ContentPart // Slice of different content parts (text, image, audio)
+	_       struct{}      // require keyed usage
 }
 
 // MarshalJSON implements json.Marshaler interface for ContentOrParts.
@@ -84,6 +85,8 @@ func (c *ContentOrParts) UnmarshalJSON(input []byte) error {
 type AssistantContentOrParts struct {
 	Content string                 // Raw string content for simple text responses
 	Parts   []AssistantContentPart // Slice of assistant-specific content parts
+	Refusal string
+	_       struct{} // require keyed usage
 }
 
 // MarshalJSON implements json.Marshaler interface for AssistantContentOrParts.
@@ -91,8 +94,14 @@ type AssistantContentOrParts struct {
 // otherwise returns the Parts as a JSON array.
 // Returns null if both Content and Parts are empty.
 func (c AssistantContentOrParts) MarshalJSON() ([]byte, error) {
+	if strings.TrimSpace(c.Content) != "" && strings.TrimSpace(c.Refusal) != "" {
+		return nil, fmt.Errorf("both Content and Refusal are set")
+	}
 	if strings.TrimSpace(c.Content) != "" {
 		return json.Marshal(c.Content)
+	}
+	if strings.TrimSpace(c.Refusal) != "" {
+		return json.Marshal(c.Refusal)
 	}
 	if c.Parts == nil {
 		return jsonNull, nil
@@ -149,10 +158,17 @@ type AssistantContentPart interface {
 	assistantContentPart()
 }
 
+// Text creates a new TextContentPart with the given text.
+// This is a convenience function for creating text content parts.
+func Text(text string) TextContentPart {
+	return TextContentPart{Text: text}
+}
+
 // TextContentPart represents a text-only content part.
 // It implements both ContentPart and AssistantContentPart interfaces.
 type TextContentPart struct {
-	Text string `json:"text"` // The actual text content
+	Text string   `json:"text"` // The actual text content
+	_    struct{} // require keyed usage
 }
 
 func (TextContentPart) contentPart()          {}
@@ -177,10 +193,17 @@ func (t *TextContentPart) UnmarshalJSON(input []byte) error {
 	return nil
 }
 
+// Refusal creates a new RefusalContentPart with the given reason.
+// This is a convenience function for creating refusal messages.
+func Refusal(reason string) RefusalContentPart {
+	return RefusalContentPart{Refusal: reason}
+}
+
 // RefusalContentPart represents a content part indicating a refusal message.
 // It implements the AssistantContentPart interface.
 type RefusalContentPart struct {
-	Refusal string `json:"refusal"` // The refusal message text
+	Refusal string   `json:"refusal"` // The refusal message text
+	_       struct{} // require keyed usage
 }
 
 func (RefusalContentPart) assistantContentPart() {}
@@ -204,10 +227,17 @@ func (t *RefusalContentPart) UnmarshalJSON(input []byte) error {
 	return nil
 }
 
+// Image creates a new ImageContentPart with the given URL.
+// This is a convenience function for creating image content parts.
+func Image(url string) ImageContentPart {
+	return ImageContentPart{URL: url}
+}
+
 // ImageContentPart represents an image content part with a URL.
 // It implements the ContentPart interface.
 type ImageContentPart struct {
-	URL string `json:"image_url"` // URL pointing to the image
+	URL string   `json:"image_url"` // URL pointing to the image
+	_   struct{} // require keyed usage
 }
 
 func (ImageContentPart) contentPart() {}
@@ -233,8 +263,9 @@ func (i *ImageContentPart) UnmarshalJSON(input []byte) error {
 
 // InputAudio contains the data and format information for audio content.
 type InputAudio struct {
-	Data   []byte `json:"-"`      // Raw audio data
-	Format string `json:"format"` // Audio format specification
+	Data   []byte   `json:"-"`      // Raw audio data
+	Format string   `json:"format"` // Audio format specification
+	_      struct{} // require keyed usage
 }
 
 // MarshalJSON implements json.Marshaler interface for InputAudio.
@@ -268,10 +299,23 @@ func (i *InputAudio) UnmarshalJSON(data []byte) error {
 	return err
 }
 
+// Audio creates a new AudioContentPart with the provided raw audio data and format.
+// The format parameter should specify the audio encoding format (e.g., "wav", "mp3").
+// This is a convenience function for creating audio content parts.
+func Audio(data []byte, format string) ContentPart {
+	return AudioContentPart{
+		InputAudio: InputAudio{
+			Data:   data,
+			Format: format,
+		},
+	}
+}
+
 // AudioContentPart represents an audio content part.
 // It implements the ContentPart interface.
 type AudioContentPart struct {
 	InputAudio InputAudio `json:"input_audio"` // Audio data and format information
+	_          struct{}   // require keyed usage
 }
 
 func (AudioContentPart) contentPart() {}

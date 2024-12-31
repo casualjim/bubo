@@ -1,7 +1,6 @@
 package pubsub
 
 import (
-	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -14,270 +13,526 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-func TestDelimSerialization(t *testing.T) {
+func TestDelimJSON(t *testing.T) {
 	runID := uuid.New()
 	turnID := uuid.New()
 	delim := Delim{
 		RunID:  runID,
 		TurnID: turnID,
-		Delim:  "test-delim",
+		Delim:  "test",
 	}
 
-	// Test marshaling
-	data, err := json.Marshal(delim)
-	require.NoError(t, err)
+	t.Run("marshal", func(t *testing.T) {
+		data, err := delim.MarshalJSON()
+		require.NoError(t, err)
 
-	// Verify JSON structure
-	result := gjson.ParseBytes(data)
-	assert.Equal(t, "delim", result.Get("type").String())
-	assert.Equal(t, runID.String(), result.Get("run_id").String())
-	assert.Equal(t, turnID.String(), result.Get("turn_id").String())
-	assert.Equal(t, "test-delim", result.Get("delim").String())
+		result := gjson.ParseBytes(data)
+		assert.Equal(t, "delim", result.Get("type").String())
+		assert.Equal(t, runID.String(), result.Get("run_id").String())
+		assert.Equal(t, turnID.String(), result.Get("turn_id").String())
+		assert.Equal(t, "test", result.Get("delim").String())
+	})
 
-	// Test unmarshaling
-	var unmarshaled Delim
-	err = json.Unmarshal(data, &unmarshaled)
-	require.NoError(t, err)
-	assert.Equal(t, delim, unmarshaled)
+	t.Run("unmarshal", func(t *testing.T) {
+		input := []byte(`{
+			"type": "delim",
+			"run_id": "` + runID.String() + `",
+			"turn_id": "` + turnID.String() + `",
+			"delim": "test"
+		}`)
 
-	// Test error cases
-	testCases := []struct {
-		name    string
-		json    string
-		wantErr string
-	}{
-		{
-			name:    "missing type",
-			json:    `{"run_id":"` + runID.String() + `","turn_id":"` + turnID.String() + `","delim":"test"}`,
-			wantErr: "missing or invalid type, expected 'delim'",
-		},
-		{
-			name:    "wrong type",
-			json:    `{"type":"wrong","run_id":"` + runID.String() + `","turn_id":"` + turnID.String() + `","delim":"test"}`,
-			wantErr: "missing or invalid type, expected 'delim'",
-		},
-		{
-			name:    "missing run_id",
-			json:    `{"type":"delim","turn_id":"` + turnID.String() + `","delim":"test"}`,
-			wantErr: "missing required field 'run_id'",
-		},
-		{
-			name:    "missing turn_id",
-			json:    `{"type":"delim","run_id":"` + runID.String() + `","delim":"test"}`,
-			wantErr: "missing required field 'turn_id'",
-		},
-		{
-			name:    "missing delim",
-			json:    `{"type":"delim","run_id":"` + runID.String() + `","turn_id":"` + turnID.String() + `"}`,
-			wantErr: "missing required field 'delim'",
-		},
-		{
-			name:    "invalid run_id",
-			json:    `{"type":"delim","run_id":"invalid","turn_id":"` + turnID.String() + `","delim":"test"}`,
-			wantErr: "invalid run_id",
-		},
-		{
-			name:    "invalid turn_id",
-			json:    `{"type":"delim","run_id":"` + runID.String() + `","turn_id":"invalid","delim":"test"}`,
-			wantErr: "invalid turn_id",
-		},
-	}
+		var d Delim
+		err := d.UnmarshalJSON(input)
+		require.NoError(t, err)
+		assert.Equal(t, delim, d)
+	})
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			var d Delim
-			err := json.Unmarshal([]byte(tc.json), &d)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), tc.wantErr)
-		})
-	}
+	t.Run("unmarshal errors", func(t *testing.T) {
+		tests := []struct {
+			name  string
+			input string
+		}{
+			{
+				name:  "invalid json",
+				input: "invalid",
+			},
+			{
+				name:  "missing type",
+				input: `{"run_id": "` + runID.String() + `"}`,
+			},
+			{
+				name:  "wrong type",
+				input: `{"type": "wrong", "run_id": "` + runID.String() + `"}`,
+			},
+			{
+				name:  "missing run_id",
+				input: `{"type": "delim"}`,
+			},
+			{
+				name:  "invalid run_id",
+				input: `{"type": "delim", "run_id": "invalid"}`,
+			},
+			{
+				name:  "missing turn_id",
+				input: `{"type": "delim", "run_id": "` + runID.String() + `"}`,
+			},
+			{
+				name:  "invalid turn_id",
+				input: `{"type": "delim", "run_id": "` + runID.String() + `", "turn_id": "invalid"}`,
+			},
+			{
+				name:  "missing delim",
+				input: `{"type": "delim", "run_id": "` + runID.String() + `", "turn_id": "` + turnID.String() + `"}`,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				var d Delim
+				err := d.UnmarshalJSON([]byte(tt.input))
+				assert.Error(t, err)
+			})
+		}
+	})
 }
 
-func TestChunkSerialization(t *testing.T) {
+func TestChunkJSON(t *testing.T) {
 	runID := uuid.New()
 	turnID := uuid.New()
-	timestamp := strfmt.DateTime(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC))
-	toolCall := messages.ToolCallMessage{
-		ToolCalls: []messages.ToolCallData{
-			{
-				ID:        "test-id",
-				Name:      "test-tool",
-				Arguments: `{"arg":"value"}`,
-			},
-		},
-	}
-	chunk := Chunk[messages.ToolCallMessage]{
+	timestamp := strfmt.DateTime(time.Now().UTC().Truncate(time.Millisecond))
+	meta := gjson.Parse(`{"key":"value"}`)
+
+	msg := messages.New().AssistantMessage("test")
+	chunk := Chunk[messages.AssistantMessage]{
 		RunID:     runID,
 		TurnID:    turnID,
-		Chunk:     toolCall,
-		Sender:    "test-sender",
+		Chunk:     msg.Payload,
+		Sender:    "test",
 		Timestamp: timestamp,
-		Meta:      gjson.Parse(`{"key":"value"}`),
+		Meta:      meta,
 	}
 
-	// Test marshaling
-	data, err := json.Marshal(chunk)
-	require.NoError(t, err)
+	t.Run("marshal", func(t *testing.T) {
+		data, err := chunk.MarshalJSON()
+		require.NoError(t, err)
 
-	// Verify JSON structure
-	result := gjson.ParseBytes(data)
-	assert.Equal(t, "chunk", result.Get("type").String())
-	assert.Equal(t, runID.String(), result.Get("run_id").String())
-	assert.Equal(t, turnID.String(), result.Get("turn_id").String())
-	assert.Equal(t, "test-id", result.Get("chunk.tool_calls.0.id").String())
-	assert.Equal(t, "test-tool", result.Get("chunk.tool_calls.0.name").String())
-	assert.Equal(t, `{"arg":"value"}`, result.Get("chunk.tool_calls.0.arguments").String())
-	assert.Equal(t, "test-sender", result.Get("sender").String())
-	assert.Equal(t, timestamp.String(), result.Get("timestamp").String())
-	assert.Equal(t, "value", result.Get("meta.key").String())
+		result := gjson.ParseBytes(data)
+		assert.Equal(t, "chunk", result.Get("type").String())
+		assert.Equal(t, runID.String(), result.Get("run_id").String())
+		assert.Equal(t, turnID.String(), result.Get("turn_id").String())
+		assert.True(t, result.Get("chunk").Exists())
+		assert.Equal(t, "test", result.Get("sender").String())
+		assert.Equal(t, timestamp.String(), result.Get("timestamp").String())
+		assert.Equal(t, "value", result.Get("meta.key").String())
+	})
 
-	// Test unmarshaling
-	var unmarshaled Chunk[messages.ToolCallMessage]
-	err = json.Unmarshal(data, &unmarshaled)
-	require.NoError(t, err)
-	assert.Equal(t, chunk.RunID, unmarshaled.RunID)
-	assert.Equal(t, chunk.TurnID, unmarshaled.TurnID)
-	assert.Equal(t, chunk.Chunk, unmarshaled.Chunk)
-	assert.Equal(t, chunk.Sender, unmarshaled.Sender)
-	assert.Equal(t, chunk.Timestamp, unmarshaled.Timestamp)
-	assert.Equal(t, chunk.Meta.Raw, unmarshaled.Meta.Raw)
-}
+	t.Run("unmarshal", func(t *testing.T) {
+		input := []byte(`{
+			"type": "chunk",
+			"run_id": "` + runID.String() + `",
+			"turn_id": "` + turnID.String() + `",
+			"chunk": {"type": "assistant", "content": "test"},
+			"sender": "test",
+			"timestamp": "` + timestamp.String() + `",
+			"meta": {"key":"value"}
+		}`)
 
-func TestRequestSerialization(t *testing.T) {
-	runID := uuid.New()
-	turnID := uuid.New()
-	timestamp := strfmt.DateTime(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC))
-	request := Request[messages.ToolResponse]{
-		RunID:  runID,
-		TurnID: turnID,
-		Message: messages.ToolResponse{
-			ToolName:   "test-tool",
-			ToolCallID: "test-id",
-			Content:    "test-response",
-		},
-		Sender:    "test-sender",
-		Timestamp: timestamp,
-		Meta:      gjson.Parse(`{"key":"value"}`),
-	}
+		var c Chunk[messages.AssistantMessage]
+		err := c.UnmarshalJSON(input)
+		require.NoError(t, err)
+		assert.Equal(t, chunk.RunID, c.RunID)
+		assert.Equal(t, chunk.TurnID, c.TurnID)
+		assert.Equal(t, chunk.Sender, c.Sender)
+		assert.Equal(t, chunk.Timestamp, c.Timestamp)
+		assert.Equal(t, chunk.Meta.Raw, c.Meta.Raw)
+	})
 
-	// Test marshaling
-	data, err := json.Marshal(request)
-	require.NoError(t, err)
-
-	// Verify JSON structure
-	result := gjson.ParseBytes(data)
-	assert.Equal(t, "request", result.Get("type").String())
-	assert.Equal(t, runID.String(), result.Get("run_id").String())
-	assert.Equal(t, turnID.String(), result.Get("turn_id").String())
-	assert.Equal(t, "test-tool", result.Get("message.tool_name").String())
-	assert.Equal(t, "test-id", result.Get("message.tool_call_id").String())
-	assert.Equal(t, "test-response", result.Get("message.content").String())
-	assert.Equal(t, "test-sender", result.Get("sender").String())
-	assert.Equal(t, timestamp.String(), result.Get("timestamp").String())
-	assert.Equal(t, "value", result.Get("meta.key").String())
-
-	// Test unmarshaling
-	var unmarshaled Request[messages.ToolResponse]
-	err = json.Unmarshal(data, &unmarshaled)
-	require.NoError(t, err)
-	assert.Equal(t, request.RunID, unmarshaled.RunID)
-	assert.Equal(t, request.TurnID, unmarshaled.TurnID)
-	assert.Equal(t, request.Message, unmarshaled.Message)
-	assert.Equal(t, request.Sender, unmarshaled.Sender)
-	assert.Equal(t, request.Timestamp, unmarshaled.Timestamp)
-	assert.Equal(t, request.Meta.Raw, unmarshaled.Meta.Raw)
-}
-
-func TestResponseSerialization(t *testing.T) {
-	runID := uuid.New()
-	turnID := uuid.New()
-	timestamp := strfmt.DateTime(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC))
-	toolCall := messages.ToolCallMessage{
-		ToolCalls: []messages.ToolCallData{
+	t.Run("unmarshal errors", func(t *testing.T) {
+		tests := []struct {
+			name  string
+			input string
+		}{
 			{
-				ID:        "test-id",
-				Name:      "test-tool",
-				Arguments: `{"arg":"value"}`,
+				name:  "invalid json",
+				input: "invalid",
 			},
-		},
-	}
-	response := Response[messages.ToolCallMessage]{
+			{
+				name:  "missing type",
+				input: `{"run_id": "` + runID.String() + `"}`,
+			},
+			{
+				name:  "wrong type",
+				input: `{"type": "wrong", "run_id": "` + runID.String() + `"}`,
+			},
+			{
+				name:  "missing run_id",
+				input: `{"type": "chunk"}`,
+			},
+			{
+				name:  "invalid run_id",
+				input: `{"type": "chunk", "run_id": "invalid"}`,
+			},
+			{
+				name:  "missing turn_id",
+				input: `{"type": "chunk", "run_id": "` + runID.String() + `"}`,
+			},
+			{
+				name:  "invalid turn_id",
+				input: `{"type": "chunk", "run_id": "` + runID.String() + `", "turn_id": "invalid"}`,
+			},
+			{
+				name:  "missing chunk",
+				input: `{"type": "chunk", "run_id": "` + runID.String() + `", "turn_id": "` + turnID.String() + `"}`,
+			},
+			{
+				name:  "invalid chunk",
+				input: `{"type": "chunk", "run_id": "` + runID.String() + `", "turn_id": "` + turnID.String() + `", "chunk": "invalid"}`,
+			},
+			{
+				name:  "invalid timestamp",
+				input: `{"type": "chunk", "run_id": "` + runID.String() + `", "turn_id": "` + turnID.String() + `", "chunk": {}, "timestamp": "invalid"}`,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				var c Chunk[messages.AssistantMessage]
+				err := c.UnmarshalJSON([]byte(tt.input))
+				assert.Error(t, err)
+			})
+		}
+	})
+}
+
+func TestRequestJSON(t *testing.T) {
+	runID := uuid.New()
+	turnID := uuid.New()
+	timestamp := strfmt.DateTime(time.Now().UTC().Truncate(time.Millisecond))
+	meta := gjson.Parse(`{"key":"value"}`)
+
+	msg := messages.New().UserPrompt("test")
+	request := Request[messages.UserMessage]{
 		RunID:     runID,
 		TurnID:    turnID,
-		Response:  toolCall,
-		Sender:    "test-sender",
+		Message:   msg.Payload,
+		Sender:    "test",
 		Timestamp: timestamp,
-		Meta:      gjson.Parse(`{"key":"value"}`),
+		Meta:      meta,
 	}
 
-	// Test marshaling
-	data, err := json.Marshal(response)
-	require.NoError(t, err)
+	t.Run("marshal", func(t *testing.T) {
+		data, err := request.MarshalJSON()
+		require.NoError(t, err)
 
-	// Verify JSON structure
-	result := gjson.ParseBytes(data)
-	assert.Equal(t, "response", result.Get("type").String())
-	assert.Equal(t, runID.String(), result.Get("run_id").String())
-	assert.Equal(t, turnID.String(), result.Get("turn_id").String())
-	assert.Equal(t, "test-id", result.Get("response.tool_calls.0.id").String())
-	assert.Equal(t, "test-tool", result.Get("response.tool_calls.0.name").String())
-	assert.Equal(t, `{"arg":"value"}`, result.Get("response.tool_calls.0.arguments").String())
-	assert.Equal(t, "test-sender", result.Get("sender").String())
-	assert.Equal(t, timestamp.String(), result.Get("timestamp").String())
-	assert.Equal(t, "value", result.Get("meta.key").String())
+		result := gjson.ParseBytes(data)
+		assert.Equal(t, "request", result.Get("type").String())
+		assert.Equal(t, runID.String(), result.Get("run_id").String())
+		assert.Equal(t, turnID.String(), result.Get("turn_id").String())
+		assert.True(t, result.Get("message").Exists())
+		assert.Equal(t, "test", result.Get("sender").String())
+		assert.Equal(t, timestamp.String(), result.Get("timestamp").String())
+		assert.Equal(t, "value", result.Get("meta.key").String())
+	})
 
-	// Test unmarshaling
-	var unmarshaled Response[messages.ToolCallMessage]
-	err = json.Unmarshal(data, &unmarshaled)
-	require.NoError(t, err)
-	assert.Equal(t, response.RunID, unmarshaled.RunID)
-	assert.Equal(t, response.TurnID, unmarshaled.TurnID)
-	assert.Equal(t, response.Response, unmarshaled.Response)
-	assert.Equal(t, response.Sender, unmarshaled.Sender)
-	assert.Equal(t, response.Timestamp, unmarshaled.Timestamp)
-	assert.Equal(t, response.Meta.Raw, unmarshaled.Meta.Raw)
+	t.Run("unmarshal", func(t *testing.T) {
+		input := []byte(`{
+			"type": "request",
+			"run_id": "` + runID.String() + `",
+			"turn_id": "` + turnID.String() + `",
+			"message": {"type": "user", "content": "test"},
+			"sender": "test",
+			"timestamp": "` + timestamp.String() + `",
+			"meta": {"key":"value"}
+		}`)
+
+		var r Request[messages.UserMessage]
+		err := r.UnmarshalJSON(input)
+		require.NoError(t, err)
+		assert.Equal(t, request.RunID, r.RunID)
+		assert.Equal(t, request.TurnID, r.TurnID)
+		assert.Equal(t, request.Sender, r.Sender)
+		assert.Equal(t, request.Timestamp, r.Timestamp)
+		assert.Equal(t, request.Meta.Raw, r.Meta.Raw)
+	})
+
+	t.Run("unmarshal errors", func(t *testing.T) {
+		tests := []struct {
+			name  string
+			input string
+		}{
+			{
+				name:  "invalid json",
+				input: "invalid",
+			},
+			{
+				name:  "missing type",
+				input: `{"run_id": "` + runID.String() + `"}`,
+			},
+			{
+				name:  "wrong type",
+				input: `{"type": "wrong", "run_id": "` + runID.String() + `"}`,
+			},
+			{
+				name:  "missing run_id",
+				input: `{"type": "request"}`,
+			},
+			{
+				name:  "invalid run_id",
+				input: `{"type": "request", "run_id": "invalid"}`,
+			},
+			{
+				name:  "missing turn_id",
+				input: `{"type": "request", "run_id": "` + runID.String() + `"}`,
+			},
+			{
+				name:  "invalid turn_id",
+				input: `{"type": "request", "run_id": "` + runID.String() + `", "turn_id": "invalid"}`,
+			},
+			{
+				name:  "missing message",
+				input: `{"type": "request", "run_id": "` + runID.String() + `", "turn_id": "` + turnID.String() + `"}`,
+			},
+			{
+				name:  "invalid message",
+				input: `{"type": "request", "run_id": "` + runID.String() + `", "turn_id": "` + turnID.String() + `", "message": "invalid"}`,
+			},
+			{
+				name:  "invalid timestamp",
+				input: `{"type": "request", "run_id": "` + runID.String() + `", "turn_id": "` + turnID.String() + `", "message": {}, "timestamp": "invalid"}`,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				var r Request[messages.UserMessage]
+				err := r.UnmarshalJSON([]byte(tt.input))
+				assert.Error(t, err)
+			})
+		}
+	})
 }
 
-func TestErrorSerialization(t *testing.T) {
+func TestResponseJSON(t *testing.T) {
 	runID := uuid.New()
 	turnID := uuid.New()
-	timestamp := strfmt.DateTime(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC))
+	timestamp := strfmt.DateTime(time.Now().UTC().Truncate(time.Millisecond))
+	meta := gjson.Parse(`{"key":"value"}`)
+
+	msg := messages.New().AssistantMessage("test")
+	response := Response[messages.AssistantMessage]{
+		RunID:     runID,
+		TurnID:    turnID,
+		Response:  msg.Payload,
+		Sender:    "test",
+		Timestamp: timestamp,
+		Meta:      meta,
+	}
+
+	t.Run("marshal", func(t *testing.T) {
+		data, err := response.MarshalJSON()
+		require.NoError(t, err)
+
+		result := gjson.ParseBytes(data)
+		assert.Equal(t, "response", result.Get("type").String())
+		assert.Equal(t, runID.String(), result.Get("run_id").String())
+		assert.Equal(t, turnID.String(), result.Get("turn_id").String())
+		assert.True(t, result.Get("response").Exists())
+		assert.Equal(t, "test", result.Get("sender").String())
+		assert.Equal(t, timestamp.String(), result.Get("timestamp").String())
+		assert.Equal(t, "value", result.Get("meta.key").String())
+	})
+
+	t.Run("unmarshal", func(t *testing.T) {
+		input := []byte(`{
+			"type": "response",
+			"run_id": "` + runID.String() + `",
+			"turn_id": "` + turnID.String() + `",
+			"response": {"type": "assistant", "content": "test"},
+			"sender": "test",
+			"timestamp": "` + timestamp.String() + `",
+			"meta": {"key":"value"}
+		}`)
+
+		var r Response[messages.AssistantMessage]
+		err := r.UnmarshalJSON(input)
+		require.NoError(t, err)
+		assert.Equal(t, response.RunID, r.RunID)
+		assert.Equal(t, response.TurnID, r.TurnID)
+		assert.Equal(t, response.Sender, r.Sender)
+		assert.Equal(t, response.Timestamp, r.Timestamp)
+		assert.Equal(t, response.Meta.Raw, r.Meta.Raw)
+	})
+
+	t.Run("unmarshal errors", func(t *testing.T) {
+		tests := []struct {
+			name  string
+			input string
+		}{
+			{
+				name:  "invalid json",
+				input: "invalid",
+			},
+			{
+				name:  "missing type",
+				input: `{"run_id": "` + runID.String() + `"}`,
+			},
+			{
+				name:  "wrong type",
+				input: `{"type": "wrong", "run_id": "` + runID.String() + `"}`,
+			},
+			{
+				name:  "missing run_id",
+				input: `{"type": "response"}`,
+			},
+			{
+				name:  "invalid run_id",
+				input: `{"type": "response", "run_id": "invalid"}`,
+			},
+			{
+				name:  "missing turn_id",
+				input: `{"type": "response", "run_id": "` + runID.String() + `"}`,
+			},
+			{
+				name:  "invalid turn_id",
+				input: `{"type": "response", "run_id": "` + runID.String() + `", "turn_id": "invalid"}`,
+			},
+			{
+				name:  "missing response",
+				input: `{"type": "response", "run_id": "` + runID.String() + `", "turn_id": "` + turnID.String() + `"}`,
+			},
+			{
+				name:  "invalid response",
+				input: `{"type": "response", "run_id": "` + runID.String() + `", "turn_id": "` + turnID.String() + `", "response": "invalid"}`,
+			},
+			{
+				name:  "invalid timestamp",
+				input: `{"type": "response", "run_id": "` + runID.String() + `", "turn_id": "` + turnID.String() + `", "response": {}, "timestamp": "invalid"}`,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				var r Response[messages.AssistantMessage]
+				err := r.UnmarshalJSON([]byte(tt.input))
+				assert.Error(t, err)
+			})
+		}
+	})
+}
+
+func TestErrorJSON(t *testing.T) {
+	runID := uuid.New()
+	turnID := uuid.New()
+	timestamp := strfmt.DateTime(time.Now().UTC().Truncate(time.Millisecond))
+	meta := gjson.Parse(`{"key":"value"}`)
+	testErr := errors.New("test error")
+
 	errEvent := Error{
 		RunID:     runID,
 		TurnID:    turnID,
-		Err:       errors.New("test-error"),
-		Sender:    "test-sender",
+		Err:       testErr,
+		Sender:    "test",
 		Timestamp: timestamp,
-		Meta:      gjson.Parse(`{"key":"value"}`),
+		Meta:      meta,
 	}
 
-	// Test marshaling
-	data, err := json.Marshal(errEvent)
-	require.NoError(t, err)
+	t.Run("marshal", func(t *testing.T) {
+		data, err := errEvent.MarshalJSON()
+		require.NoError(t, err)
 
-	// Verify JSON structure
-	result := gjson.ParseBytes(data)
-	assert.Equal(t, "error", result.Get("type").String())
-	assert.Equal(t, runID.String(), result.Get("run_id").String())
-	assert.Equal(t, turnID.String(), result.Get("turn_id").String())
-	assert.Equal(t, "test-error", result.Get("error").String())
-	assert.Equal(t, "test-sender", result.Get("sender").String())
-	assert.Equal(t, timestamp.String(), result.Get("timestamp").String())
-	assert.Equal(t, "value", result.Get("meta.key").String())
+		result := gjson.ParseBytes(data)
+		assert.Equal(t, "error", result.Get("type").String())
+		assert.Equal(t, runID.String(), result.Get("run_id").String())
+		assert.Equal(t, turnID.String(), result.Get("turn_id").String())
+		assert.Equal(t, testErr.Error(), result.Get("error").String())
+		assert.Equal(t, "test", result.Get("sender").String())
+		assert.Equal(t, timestamp.String(), result.Get("timestamp").String())
+		assert.Equal(t, "value", result.Get("meta.key").String())
+	})
 
-	// Test unmarshaling
-	var unmarshaled Error
-	err = json.Unmarshal(data, &unmarshaled)
-	require.NoError(t, err)
-	assert.Equal(t, errEvent.RunID, unmarshaled.RunID)
-	assert.Equal(t, errEvent.TurnID, unmarshaled.TurnID)
-	assert.Equal(t, errEvent.Err.Error(), unmarshaled.Err.Error())
-	assert.Equal(t, errEvent.Sender, unmarshaled.Sender)
-	assert.Equal(t, errEvent.Timestamp, unmarshaled.Timestamp)
-	assert.Equal(t, errEvent.Meta.Raw, unmarshaled.Meta.Raw)
+	t.Run("unmarshal", func(t *testing.T) {
+		input := []byte(`{
+			"type": "error",
+			"run_id": "` + runID.String() + `",
+			"turn_id": "` + turnID.String() + `",
+			"error": "test error",
+			"sender": "test",
+			"timestamp": "` + timestamp.String() + `",
+			"meta": {"key": "value"}
+		}`)
 
-	// Test Error() string method
-	assert.Contains(t, errEvent.Error(), "test-error")
-	assert.Contains(t, errEvent.Error(), runID.String())
-	assert.Contains(t, errEvent.Error(), turnID.String())
+		var e Error
+		err := e.UnmarshalJSON(input)
+		require.NoError(t, err)
+		assert.Equal(t, errEvent.RunID, e.RunID)
+		assert.Equal(t, errEvent.TurnID, e.TurnID)
+		assert.Equal(t, errEvent.Err.Error(), e.Err.Error())
+		assert.Equal(t, errEvent.Sender, e.Sender)
+		assert.Equal(t, errEvent.Timestamp, e.Timestamp)
+		assert.Equal(t, `{"key": "value"}`, e.Meta.Raw)
+	})
+
+	t.Run("Error() method", func(t *testing.T) {
+		errStr := errEvent.Error()
+		assert.Contains(t, errStr, testErr.Error())
+		assert.Contains(t, errStr, runID.String())
+		assert.Contains(t, errStr, turnID.String())
+
+		// Test with nil error
+		errEvent.Err = nil
+		errStr = errEvent.Error()
+		assert.Contains(t, errStr, "<nil>")
+	})
+
+	t.Run("unmarshal errors", func(t *testing.T) {
+		tests := []struct {
+			name  string
+			input string
+		}{
+			{
+				name:  "invalid json",
+				input: "invalid",
+			},
+			{
+				name:  "missing type",
+				input: `{"run_id": "` + runID.String() + `"}`,
+			},
+			{
+				name:  "wrong type",
+				input: `{"type": "wrong", "run_id": "` + runID.String() + `"}`,
+			},
+			{
+				name:  "missing run_id",
+				input: `{"type": "error"}`,
+			},
+			{
+				name:  "invalid run_id",
+				input: `{"type": "error", "run_id": "invalid"}`,
+			},
+			{
+				name:  "missing turn_id",
+				input: `{"type": "error", "run_id": "` + runID.String() + `"}`,
+			},
+			{
+				name:  "invalid turn_id",
+				input: `{"type": "error", "run_id": "` + runID.String() + `", "turn_id": "invalid"}`,
+			},
+			{
+				name:  "missing error",
+				input: `{"type": "error", "run_id": "` + runID.String() + `", "turn_id": "` + turnID.String() + `"}`,
+			},
+			{
+				name:  "invalid timestamp",
+				input: `{"type": "error", "run_id": "` + runID.String() + `", "turn_id": "` + turnID.String() + `", "error": "test", "timestamp": "invalid"}`,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				var e Error
+				err := e.UnmarshalJSON([]byte(tt.input))
+				assert.Error(t, err)
+			})
+		}
+	})
 }

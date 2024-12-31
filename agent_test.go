@@ -1,8 +1,11 @@
 package bubo
 
 import (
+	"os"
 	"testing"
 
+	"github.com/casualjim/bubo/types"
+	openai "github.com/openai/openai-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -86,24 +89,76 @@ func TestDefaultAgentParallelToolCalls(t *testing.T) {
 	agent := NewAgent("test", "gpt-4", "instructions")
 
 	t.Run("EnableParallelToolCalls", func(t *testing.T) {
+		agent.DisableParallelToolCalls() // Start from disabled
 		agent.EnableParallelToolCalls()
 		assert.True(t, agent.ParallelToolCalls())
 	})
 
 	t.Run("DisableParallelToolCalls", func(t *testing.T) {
+		agent.EnableParallelToolCalls() // Start from enabled
 		agent.DisableParallelToolCalls()
-		assert.True(t, agent.ParallelToolCalls())
+		assert.False(t, agent.ParallelToolCalls())
 	})
 
 	t.Run("WithParallelToolCalls", func(t *testing.T) {
+		agent.DisableParallelToolCalls() // Start from disabled
 		result := agent.WithParallelToolCalls()
 		assert.Same(t, agent, result)
 		assert.True(t, agent.ParallelToolCalls())
 	})
 
 	t.Run("WithoutParallelToolCalls", func(t *testing.T) {
+		agent.EnableParallelToolCalls() // Start from enabled
 		result := agent.WithoutParallelToolCalls()
 		assert.Same(t, agent, result)
 		assert.False(t, agent.ParallelToolCalls())
+	})
+}
+
+func TestRenderInstructions(t *testing.T) {
+	t.Run("no template variables", func(t *testing.T) {
+		agent := NewAgent("test", "gpt-4", "simple instructions")
+		result, err := agent.RenderInstructions(types.ContextVars{})
+		require.NoError(t, err)
+		assert.Equal(t, "simple instructions", result)
+	})
+
+	t.Run("with template variables", func(t *testing.T) {
+		agent := NewAgent("test", "gpt-4", "Hello {{.Name}}")
+		result, err := agent.RenderInstructions(types.ContextVars{"Name": "World"})
+		require.NoError(t, err)
+		assert.Equal(t, "Hello World", result)
+	})
+
+	t.Run("with invalid template", func(t *testing.T) {
+		agent := NewAgent("test", "gpt-4", "Hello {{.Name")
+		_, err := agent.RenderInstructions(types.ContextVars{"Name": "World"})
+		require.Error(t, err)
+	})
+
+	t.Run("with missing variable", func(t *testing.T) {
+		agent := NewAgent("test", "gpt-4", "Hello {{.Name}}")
+		_, err := agent.RenderInstructions(types.ContextVars{})
+		require.Error(t, err)
+	})
+}
+
+func TestNewAgentWithEmptyModel(t *testing.T) {
+	t.Run("uses env var when set", func(t *testing.T) {
+		oldModel := os.Getenv("OPENAI_DEFAULT_MODEL")
+		defer os.Setenv("OPENAI_DEFAULT_MODEL", oldModel)
+
+		os.Setenv("OPENAI_DEFAULT_MODEL", "test-model")
+		agent := NewAgent("test", "", "instructions")
+		assert.Equal(t, "test-model", agent.Model())
+	})
+
+	t.Run("uses default when env var not set", func(t *testing.T) {
+		oldModel := os.Getenv("OPENAI_DEFAULT_MODEL")
+		defer os.Setenv("OPENAI_DEFAULT_MODEL", oldModel)
+
+		os.Unsetenv("OPENAI_DEFAULT_MODEL")
+		agent := NewAgent("test", "", "instructions")
+		assert.Equal(t, openai.ChatModelGPT4oMini, agent.Model())
 	})
 }

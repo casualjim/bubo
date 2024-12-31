@@ -91,7 +91,7 @@ func (a *DefaultAgent) RenderInstructions(cv types.ContextVars) (string, error) 
 }
 
 func renderTemplate(name, templateStr string, cv types.ContextVars) (string, error) {
-	tmpl, err := template.New(name).Parse(templateStr)
+	tmpl, err := template.New(name).Option("missingkey=error").Parse(templateStr)
 	if err != nil {
 		return "", err
 	}
@@ -133,7 +133,7 @@ func (a *DefaultAgent) EnableParallelToolCalls() {
 
 // DisableParallelToolCalls disables parallel tool calls for the agent.
 func (a *DefaultAgent) DisableParallelToolCalls() {
-	a.parallelToolCalls = true
+	a.parallelToolCalls = false
 }
 
 // WithParallelToolCalls enables parallel tool calls for the agent.

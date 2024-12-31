@@ -1,10 +1,10 @@
 package executor
 
 import (
+	"math"
 	"testing"
 
 	"github.com/casualjim/bubo"
-	"github.com/casualjim/bubo/executor/pubsub"
 	"github.com/casualjim/bubo/pkg/runstate"
 	"github.com/casualjim/bubo/types"
 	"github.com/stretchr/testify/assert"
@@ -18,10 +18,6 @@ type testResponse struct {
 
 type mockAgent struct {
 	bubo.Agent
-}
-
-type mockHook struct {
-	pubsub.Hook
 }
 
 func TestNewRunCommand(t *testing.T) {
@@ -133,7 +129,7 @@ func TestRunCommandMethods(t *testing.T) {
 	t.Run("WithMaxTurns", func(t *testing.T) {
 		modified := cmd.WithMaxTurns(5)
 		assert.Equal(t, 5, modified.MaxTurns)
-		assert.Equal(t, 0, cmd.MaxTurns) // Original should be unchanged
+		assert.Equal(t, math.MaxInt, cmd.MaxTurns) // Original should be unchanged
 
 		modified = modified.WithMaxTurns(10)
 		assert.Equal(t, 10, modified.MaxTurns)

@@ -3,6 +3,8 @@ package executor
 import (
 	"context"
 	"errors"
+	"math"
+	"reflect"
 
 	"github.com/casualjim/bubo"
 	"github.com/casualjim/bubo/executor/pubsub"
@@ -51,12 +53,18 @@ func NewRunCommand[T any](agent bubo.Agent, thread *runstate.Aggregator, hook pu
 	var isGjsonResult bool
 	var t T
 	_, isGjsonResult = any(t).(gjson.Result)
+	isString := reflect.TypeFor[T]().Kind() == reflect.String
 
 	if isGjsonResult {
 		// For gjson.Result, we parse differently
 		responseUnmarshaler = func(data []byte) (T, error) {
 			result := gjson.ParseBytes(data)
 			return any(result).(T), nil
+		}
+	} else if isString {
+		// For string, we just return the string
+		responseUnmarshaler = func(data []byte) (T, error) {
+			return any(string(data)).(T), nil
 		}
 	} else {
 		// For all other types, use standard JSON unmarshaling
@@ -77,6 +85,7 @@ func NewRunCommand[T any](agent bubo.Agent, thread *runstate.Aggregator, hook pu
 		ResponseSchema:    schema,
 		UnmarshalResponse: responseUnmarshaler,
 		Hook:              hook,
+		MaxTurns:          math.MaxInt,
 	}, nil
 }
 

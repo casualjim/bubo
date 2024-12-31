@@ -17,6 +17,111 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+type recordingHook struct {
+	mu                sync.Mutex
+	wg                *sync.WaitGroup
+	ready             chan struct{} // signals when hook is ready to receive events
+	userPrompts       []messages.Message[messages.UserMessage]
+	assistantChunks   []messages.Message[messages.AssistantMessage]
+	toolCallChunks    []messages.Message[messages.ToolCallMessage]
+	assistantMessages []messages.Message[messages.AssistantMessage]
+	toolCallMessages  []messages.Message[messages.ToolCallMessage]
+	toolCallResponses []messages.Message[messages.ToolResponse]
+	errors            []error
+}
+
+func newRecordingHook() *recordingHook {
+	return &recordingHook{
+		ready: make(chan struct{}),
+	}
+}
+
+func (r *recordingHook) signalReady() {
+	close(r.ready)
+}
+
+func (r *recordingHook) OnUserPrompt(ctx context.Context, msg messages.Message[messages.UserMessage]) {
+	r.mu.Lock()
+	r.userPrompts = append(r.userPrompts, msg)
+	r.mu.Unlock()
+	if r.wg != nil {
+		r.wg.Done()
+	}
+}
+
+func (r *recordingHook) OnAssistantChunk(ctx context.Context, msg messages.Message[messages.AssistantMessage]) {
+	r.mu.Lock()
+	r.assistantChunks = append(r.assistantChunks, msg)
+	r.mu.Unlock()
+	if r.wg != nil {
+		r.wg.Done()
+	}
+}
+
+func (r *recordingHook) OnToolCallChunk(ctx context.Context, msg messages.Message[messages.ToolCallMessage]) {
+	r.mu.Lock()
+	r.toolCallChunks = append(r.toolCallChunks, msg)
+	r.mu.Unlock()
+	if r.wg != nil {
+		r.wg.Done()
+	}
+}
+
+func (r *recordingHook) OnAssistantMessage(ctx context.Context, msg messages.Message[messages.AssistantMessage]) {
+	r.mu.Lock()
+	r.assistantMessages = append(r.assistantMessages, msg)
+	r.mu.Unlock()
+	if r.wg != nil {
+		r.wg.Done()
+	}
+}
+
+func (r *recordingHook) OnToolCallMessage(ctx context.Context, msg messages.Message[messages.ToolCallMessage]) {
+	r.mu.Lock()
+	r.toolCallMessages = append(r.toolCallMessages, msg)
+	r.mu.Unlock()
+	if r.wg != nil {
+		r.wg.Done()
+	}
+}
+
+func (r *recordingHook) OnToolCallResponse(ctx context.Context, msg messages.Message[messages.ToolResponse]) {
+	r.mu.Lock()
+	r.toolCallResponses = append(r.toolCallResponses, msg)
+	r.mu.Unlock()
+	if r.wg != nil {
+		r.wg.Done()
+	}
+}
+
+func (r *recordingHook) OnError(ctx context.Context, err error) {
+	r.mu.Lock()
+	r.errors = append(r.errors, err)
+	r.mu.Unlock()
+	if r.wg != nil {
+		r.wg.Done()
+	}
+}
+
+type overflowHook struct {
+	*recordingHook
+	processed         chan struct{}
+	minExpectedEvents int
+}
+
+func (h *overflowHook) OnAssistantMessage(ctx context.Context, msg messages.Message[messages.AssistantMessage]) {
+	h.recordingHook.OnAssistantMessage(ctx, msg)
+	h.mu.Lock()
+	if len(h.assistantMessages) >= h.minExpectedEvents {
+		select {
+		case <-h.processed: // Already closed
+		default:
+			close(h.processed)
+		}
+	}
+	h.mu.Unlock()
+}
+
 func TestBroker(t *testing.T) {
 	t.Run("creates unique topics", func(t *testing.T) {
 		broker := LocalBroker()
@@ -35,12 +140,13 @@ func TestBroker(t *testing.T) {
 
 func TestTopic(t *testing.T) {
 	t.Run("publishes events to all subscribers", func(t *testing.T) {
-		broker := LocalBroker()
+		broker := LocalBroker().(*broker)
+		broker = broker.WithSlowSubscriberTimeout(1 * time.Millisecond) // Very short timeout for testing
 		topic := broker.Topic(context.Background(), "test")
 
 		var wg sync.WaitGroup
-		recorder1 := &recordingHook{}
-		recorder2 := &recordingHook{}
+		recorder1 := newRecordingHook()
+		recorder2 := newRecordingHook()
 
 		ctx := context.Background()
 		sub1, err := topic.Subscribe(ctx, recorder1)
@@ -50,8 +156,9 @@ func TestTopic(t *testing.T) {
 		defer sub1.Unsubscribe()
 		defer sub2.Unsubscribe()
 
-		// Allow subscriptions to start
-		time.Sleep(10 * time.Millisecond)
+		// Signal hooks are ready
+		recorder1.signalReady()
+		recorder2.signalReady()
 
 		// Test different event types
 		runID := uuid.New()
@@ -120,23 +227,31 @@ func TestTopic(t *testing.T) {
 	})
 
 	t.Run("handles channel overflow", func(t *testing.T) {
-		broker := LocalBroker()
+		broker := LocalBroker().(*broker)
+		broker = broker.WithSlowSubscriberTimeout(1 * time.Millisecond) // Very short timeout for testing
 		topic := broker.Topic(context.Background(), "test")
 		ctx := context.Background()
 
-		// Create a slow subscriber that will cause channel overflow
-		recorder := &recordingHook{
-			delay: 100 * time.Millisecond, // Add delay to processing
+		processed := make(chan struct{})
+		minExpectedEvents := 10 // We expect at least this many events to be processed
+		recorder := &overflowHook{
+			recordingHook:     newRecordingHook(),
+			processed:         processed,
+			minExpectedEvents: minExpectedEvents,
 		}
+
 		sub, err := topic.Subscribe(ctx, recorder)
 		require.NoError(t, err)
 		defer sub.Unsubscribe()
 
-		// Allow subscription to start
-		time.Sleep(10 * time.Millisecond)
+		// Signal hook is ready
+		recorder.signalReady()
 
-		// Publish many events rapidly
-		const numEvents = 2000 // More than channel buffer size
+		// Block until the hook is ready
+		<-recorder.ready
+
+		// Publish events to cause overflow
+		const numEvents = 100 // More than channel buffer size (50)
 		for i := 0; i < numEvents; i++ {
 			msg := messages.New().AssistantMessage(fmt.Sprintf("message-%d", i))
 			event := Response[messages.AssistantMessage]{
@@ -148,15 +263,19 @@ func TestTopic(t *testing.T) {
 			require.NoError(t, err)
 		}
 
-		// Wait for some events to be processed
-		time.Sleep(200 * time.Millisecond)
+		// Wait for minimum events to be processed
+		<-processed
 
-		// Verify some events were processed and some were dropped
+		// Verify events were dropped due to overflow
 		recorder.mu.Lock()
 		messagesLen := len(recorder.assistantMessages)
 		recorder.mu.Unlock()
-		assert.Greater(t, messagesLen, 0)
-		assert.Less(t, messagesLen, numEvents)
+
+		// We expect some messages to be dropped due to overflow
+		// The exact number processed will depend on the buffer size (50)
+		// and how quickly the subscriber processes them
+		assert.Greater(t, messagesLen, 0, "Should process some events")
+		assert.Less(t, messagesLen, numEvents, "Should drop some events due to overflow")
 	})
 
 	t.Run("respects publish context cancellation", func(t *testing.T) {
@@ -164,17 +283,17 @@ func TestTopic(t *testing.T) {
 		topic := broker.Topic(context.Background(), "test")
 
 		// Create a subscriber
-		recorder := &recordingHook{}
+		recorder := newRecordingHook()
 		sub, err := topic.Subscribe(context.Background(), recorder)
 		require.NoError(t, err)
 		defer sub.Unsubscribe()
 
-		// Allow subscription to start
-		time.Sleep(10 * time.Millisecond)
+		// Signal hook is ready
+		recorder.signalReady()
 
-		// Create a cancelled context
+		// Create a context that's already cancelled
 		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
+		cancel() // Cancel immediately
 
 		// Publish event with cancelled context
 		msg := messages.New().AssistantMessage("test message")
@@ -186,8 +305,10 @@ func TestTopic(t *testing.T) {
 		err = topic.Publish(ctx, event)
 		require.NoError(t, err) // Publish still succeeds but returns early
 
-		// Verify event wasn't processed
-		time.Sleep(10 * time.Millisecond)
+		// Give a short time for any unexpected processing
+		ctx, cancel = context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+		<-ctx.Done()
 		recorder.mu.Lock()
 		assert.Len(t, recorder.assistantMessages, 0)
 		recorder.mu.Unlock()
@@ -198,17 +319,19 @@ func TestTopic(t *testing.T) {
 		topic := broker.Topic(context.Background(), "test")
 
 		ctx, cancel := context.WithCancel(context.Background())
-		recorder := &recordingHook{}
+		recorder := newRecordingHook()
 		sub, err := topic.Subscribe(ctx, recorder)
 		require.NoError(t, err)
 		defer sub.Unsubscribe()
 
-		// Allow subscription to start
-		time.Sleep(10 * time.Millisecond)
+		// Signal hook is ready
+		recorder.signalReady()
 
-		// Cancel context
+		// Cancel context and wait a moment for cancellation to propagate
 		cancel()
-		time.Sleep(10 * time.Millisecond)
+		ctx, cancel = context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+		<-ctx.Done()
 
 		// Publish event after cancellation
 		msg := messages.New().AssistantMessage("test message")
@@ -231,16 +354,18 @@ func TestTopic(t *testing.T) {
 		topic := broker.Topic(context.Background(), "test")
 
 		ctx := context.Background()
-		recorder := &recordingHook{}
+		recorder := newRecordingHook()
 		sub, err := topic.Subscribe(ctx, recorder)
 		require.NoError(t, err)
 
-		// Allow subscription to start
-		time.Sleep(10 * time.Millisecond)
+		// Signal hook is ready
+		recorder.signalReady()
 
-		// Unsubscribe
+		// Unsubscribe and wait a moment for unsubscribe to propagate
 		sub.Unsubscribe()
-		time.Sleep(10 * time.Millisecond)
+		timeoutCtx, timeoutCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer timeoutCancel()
+		<-timeoutCtx.Done()
 
 		// Publish event after unsubscribe
 		msg := messages.New().AssistantMessage("test message")
@@ -271,9 +396,8 @@ func TestTopic(t *testing.T) {
 		processWg.Add(numSubscribers * 100) // Each subscriber will process 100 events
 
 		for i := 0; i < numSubscribers; i++ {
-			recorders[i] = &recordingHook{
-				wg: &processWg, // Pass WaitGroup to recorder
-			}
+			recorders[i] = newRecordingHook()
+			recorders[i].wg = &processWg // Pass WaitGroup to recorder
 			sub, err := topic.Subscribe(ctx, recorders[i])
 			require.NoError(t, err)
 			subs[i] = sub
@@ -284,8 +408,10 @@ func TestTopic(t *testing.T) {
 			}
 		}()
 
-		// Allow subscriptions to start
-		time.Sleep(10 * time.Millisecond)
+		// Signal all hooks are ready
+		for _, recorder := range recorders {
+			recorder.signalReady()
+		}
 
 		// Publish multiple events concurrently
 		const numEvents = 100

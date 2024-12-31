@@ -3,7 +3,6 @@ package executor
 import (
 	"context"
 	"encoding"
-	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -35,22 +34,58 @@ type Local[T any] struct {
 	broker pubsub.Broker
 }
 
+func NewLocal[T any](broker pubsub.Broker) *Local[T] {
+	if broker == nil {
+		panic("broker cannot be nil")
+	}
+	return &Local[T]{
+		broker: broker,
+	}
+}
+
 func (l *Local[T]) Run(ctx context.Context, command RunCommand[T]) error {
+	if command.Agent == nil {
+		return fmt.Errorf("agent cannot be nil")
+	}
+	if command.Thread == nil {
+		return fmt.Errorf("thread cannot be nil")
+	}
+	if command.Hook == nil {
+		return fmt.Errorf("hook cannot be nil")
+	}
+
 	topic := l.broker.Topic(ctx, command.ID.String())
 	events, err := topic.Subscribe(context.Background(), command.Hook)
 	if err != nil {
 		return fmt.Errorf("failed to subscribe to topic: %w", err)
 	}
+	if events == nil {
+		return fmt.Errorf("received nil subscription from topic")
+	}
 	go func() {
 		defer events.Unsubscribe()
 
-		contextVars := maps.Clone(command.ContextVariables)
+		var contextVars types.ContextVars
+		if command.ContextVariables != nil {
+			contextVars = maps.Clone(command.ContextVariables)
+		}
 		thread := command.Thread.Fork()
 		activeAgent := command.Agent
 
 		// REACTOR:
 		for thread.TurnLen() < command.MaxTurns {
-			prov := activeAgent.Model().Provider()
+			model := activeAgent.Model()
+			if model == nil {
+				ee, _ := wrapErr(command.ID, thread.ID(), activeAgent.Name(), fmt.Errorf("agent model cannot be nil"))
+				_ = topic.Publish(ctx, ee)
+				return
+			}
+			prov := model.Provider()
+			if prov == nil {
+				ee, _ := wrapErr(command.ID, thread.ID(), activeAgent.Name(), fmt.Errorf("model provider cannot be nil"))
+				_ = topic.Publish(ctx, ee)
+				return
+			}
 			instructions, err := activeAgent.RenderInstructions(contextVars)
 			if err != nil {
 				ee, _ := wrapErr(command.ID, thread.ID(), activeAgent.Name(), err)
@@ -73,6 +108,31 @@ func (l *Local[T]) Run(ctx context.Context, command RunCommand[T]) error {
 				select {
 				case event, hasMore := <-stream:
 					if !hasMore {
+						if len(thread.Messages()) > 0 {
+							// Process any remaining events before returning
+							lastMsg := thread.Messages()[len(thread.Messages())-1]
+							if assistantMsg, ok := lastMsg.Payload.(messages.AssistantMessage); ok {
+								value, err := command.UnmarshalResponse([]byte(assistantMsg.Content.Content))
+								if err != nil {
+									evt, _ := wrapErr(command.ID, thread.ID(), activeAgent.Name(), err)
+									if perr := topic.Publish(ctx, evt); perr != nil {
+										slog.ErrorContext(ctx, "failed to unmarshal response value", slogx.Error(perr))
+									}
+								}
+								if perr := topic.Publish(ctx, pubsub.Response[T]{
+									RunID:     command.ID,
+									TurnID:    thread.ID(),
+									Response:  value,
+									Sender:    activeAgent.Name(),
+									Timestamp: strfmt.DateTime(time.Now()),
+								}); perr != nil {
+									evt, _ := wrapErr(command.ID, thread.ID(), activeAgent.Name(), err)
+									if perr := topic.Publish(ctx, evt); perr != nil {
+										slog.ErrorContext(ctx, "failed to publish response value", slogx.Error(perr))
+									}
+								}
+							}
+						}
 						return
 					}
 
@@ -100,11 +160,12 @@ func (l *Local[T]) Run(ctx context.Context, command RunCommand[T]) error {
 						}
 
 						if agent, err := l.handleToolCalls(ctx, toolCallParams{
-							mem:       thread.Fork(),
-							agent:     activeAgent,
-							runID:     command.ID,
-							toolCalls: event.Response,
-							topic:     topic,
+							mem:         thread.Fork(),
+							agent:       activeAgent,
+							runID:       command.ID,
+							toolCalls:   event.Response,
+							topic:       topic,
+							contextVars: contextVars,
 						}); err != nil {
 							evt, _ := wrapErr(command.ID, thread.ID(), activeAgent.Name(), err)
 							if perr := topic.Publish(ctx, evt); perr != nil {
@@ -117,16 +178,29 @@ func (l *Local[T]) Run(ctx context.Context, command RunCommand[T]) error {
 
 					case provider.Response[messages.AssistantMessage]:
 						event.Checkpoint.MergeInto(thread)
+						thread.AddAssistantMessage(messages.Message[messages.AssistantMessage]{
+							RunID:     command.ID,
+							TurnID:    thread.ID(),
+							Payload:   event.Response,
+							Sender:    activeAgent.Name(),
+							Timestamp: strfmt.DateTime(time.Now()),
+						})
+
 						if perr := topic.Publish(ctx, pubsub.FromStreamEvent(event, activeAgent.Name())); perr != nil {
 							slog.ErrorContext(ctx, "failed to publish response event", slogx.Error(perr))
 						}
 
-						value, err := command.UnmarshalResponse([]byte(event.Response.Content.Content))
+						content := []byte(event.Response.Content.Content)
+						if len(content) == 0 {
+							continue
+						}
+						value, err := command.UnmarshalResponse(content)
 						if err != nil {
 							evt, _ := wrapErr(command.ID, thread.ID(), activeAgent.Name(), err)
 							if perr := topic.Publish(ctx, evt); perr != nil {
 								slog.ErrorContext(ctx, "failed to unmarshal response value", slogx.Error(perr))
 							}
+							continue
 						}
 						if perr := topic.Publish(ctx, pubsub.Response[T]{
 							RunID:     command.ID,
@@ -140,7 +214,6 @@ func (l *Local[T]) Run(ctx context.Context, command RunCommand[T]) error {
 								slog.ErrorContext(ctx, "failed to publish response value", slogx.Error(perr))
 							}
 						}
-
 						return
 					default:
 						panic(fmt.Sprintf("unknown event type %T", event))
@@ -158,8 +231,8 @@ func wrapErr(runID, turnID uuid.UUID, sender string, err error) (pubsub.Error, b
 	if err == nil {
 		return pubsub.Error{}, false
 	}
-	if errors.Is(err, pubsub.Error{}) {
-		return err.(pubsub.Error), true //nolint:errorlint
+	if pErr, ok := err.(pubsub.Error); ok { //nolint: errorlint
+		return pErr, true
 	}
 	return pubsub.Error{
 		RunID:     runID,
@@ -179,13 +252,16 @@ type toolCallParams struct {
 	topic       pubsub.Topic
 }
 
-func (l *Local[T]) handleToolCalls(_ context.Context, params toolCallParams) (bubo.Agent, error) {
+func (l *Local[T]) handleToolCalls(ctx context.Context, params toolCallParams) (bubo.Agent, error) {
 	agentTools := make(map[string]bubo.AgentToolDefinition, len(params.agent.Tools()))
 	for tool := range slices.Values(params.agent.Tools()) {
 		agentTools[tool.Name] = tool
 	}
 
-	contextVars := maps.Clone(params.contextVars)
+	var contextVars types.ContextVars
+	if params.contextVars != nil {
+		contextVars = maps.Clone(params.contextVars)
+	}
 	var nextAgent bubo.Agent
 
 	// TODO: partition the tool calls into calls that will return an agent and those that will not.
@@ -235,7 +311,37 @@ func (l *Local[T]) handleToolCalls(_ context.Context, params toolCallParams) (bu
 			maps.Copy(params.contextVars, result.ContextVariables)
 		}
 		if result.Agent != nil {
+			perr := params.topic.Publish(ctx, pubsub.Response[messages.ToolResponse]{
+				RunID:  params.runID,
+				TurnID: params.mem.ID(),
+				Response: messages.ToolResponse{
+					ToolName:   tool.Name,
+					ToolCallID: toolCall.ID,
+					Content:    fmt.Sprintf("transfer to agent %s", result.Agent.Name()),
+				},
+				Sender:    params.agent.Name(),
+				Timestamp: strfmt.DateTime(time.Now()),
+			})
+			if perr != nil {
+				return nil, perr
+			}
+
 			nextAgent = result.Agent
+		} else {
+			perr := params.topic.Publish(ctx, pubsub.Response[messages.ToolResponse]{
+				RunID:  params.runID,
+				TurnID: params.mem.ID(),
+				Response: messages.ToolResponse{
+					ToolName:   tool.Name,
+					ToolCallID: toolCall.ID,
+					Content:    result.Value,
+				},
+				Sender:    params.agent.Name(),
+				Timestamp: strfmt.DateTime(time.Now()),
+			})
+			if perr != nil {
+				return nil, perr
+			}
 		}
 	}
 
@@ -255,16 +361,21 @@ func buildArgList(arguments string, parameters map[string]string) []reflect.Valu
 		targs[i] = v
 	}
 
-	var toolArgs []reflect.Value //nolint: prealloc
-	for arg := range slices.Values(targs) {
+	toolArgs := make([]reflect.Value, 0) //nolint: prealloc
+	for _, arg := range targs {
 		if arg == "" {
+			continue
+		}
+
+		val := args.Get(arg)
+		if !val.Exists() {
 			continue
 		}
 
 		// TODO: this needs to support a runtime context argument
 		// that is optionally passed to the function
 		// TODO: this needs verification of complex types
-		toolArgs = append(toolArgs, reflect.ValueOf(args.Get(arg).Value()))
+		toolArgs = append(toolArgs, reflect.ValueOf(val.Value()))
 	}
 	return toolArgs
 }
@@ -279,20 +390,32 @@ func callFunction(fn any, args []reflect.Value, contextVars types.ContextVars) (
 	val := reflect.ValueOf(fn)
 	vtpe := val.Type()
 
-	for fi := 0; fi < vtpe.NumIn(); fi++ {
-		if reflectx.IsRefinedType[types.ContextVars](vtpe.In(fi)) {
-			args[fi] = reflect.ValueOf(contextVars)
-		} else {
+	numIn := vtpe.NumIn()
+	callArgs := make([]reflect.Value, numIn)
+
+	for fi := 0; fi < numIn; fi++ {
+		paramType := vtpe.In(fi)
+		if reflectx.IsRefinedType[types.ContextVars](paramType) {
+			callArgs[fi] = reflect.ValueOf(contextVars)
+		} else if fi < len(args) {
 			vv := args[fi]
-			if vv.Type().ConvertibleTo(vtpe.In(fi)) {
-				args[fi] = vv.Convert(vtpe.In(fi))
+			if vv.Type().ConvertibleTo(paramType) {
+				callArgs[fi] = vv.Convert(paramType)
 			}
 		}
 	}
 
-	results := val.Call(args)
+	results := val.Call(callArgs)
+	if len(results) == 0 {
+		return result{}, nil
+	}
 
-	switch vtpe := results[0].Interface().(type) {
+	res := results[0]
+	if !res.IsValid() {
+		return result{}, nil
+	}
+
+	switch vtpe := res.Interface().(type) {
 	case bubo.Agent:
 		return result{Value: fmt.Sprintf(`{"assistant":%q}`, vtpe.Name()), Agent: vtpe}, nil
 	case error:
@@ -302,9 +425,11 @@ func callFunction(fn any, args []reflect.Value, contextVars types.ContextVars) (
 	case time.Time:
 		return result{Value: vtpe.Format(time.RFC3339)}, nil
 	case int, int8, int16, int32, int64:
-		return result{Value: strconv.FormatInt(vtpe.(int64), 10)}, nil
+		val := reflect.ValueOf(vtpe)
+		return result{Value: strconv.FormatInt(val.Int(), 10)}, nil
 	case uint, uint8, uint16, uint32, uint64:
-		return result{Value: strconv.FormatUint(vtpe.(uint64), 10)}, nil
+		val := reflect.ValueOf(vtpe)
+		return result{Value: strconv.FormatUint(val.Uint(), 10)}, nil
 	case float32, float64:
 		return result{Value: strconv.FormatFloat(vtpe.(float64), 'f', -1, 64)}, nil
 	case encoding.TextMarshaler:

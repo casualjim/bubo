@@ -1,28 +1,15 @@
 package bubo
 
 import (
+	"context"
 	"os"
 	"strings"
 	"text/template"
 
-	"github.com/goccy/go-json"
+	"github.com/casualjim/bubo/pkg/messages"
+	"github.com/casualjim/bubo/types"
 	openai "github.com/openai/openai-go"
 )
-
-// ContextVars represents a key-value store of context variables used for template rendering.
-// It maps string keys to values of any type. These variables can be used to customize
-// agent instructions through template substitution.
-type ContextVars map[string]any
-
-// String returns a JSON string representation of the ContextVars.
-// If marshaling fails, it returns an empty string.
-func (cv ContextVars) String() string {
-	jsonData, err := json.Marshal(cv)
-	if err != nil {
-		return ""
-	}
-	return string(jsonData)
-}
 
 // Agent represents an interface for an agent with various capabilities.
 // It provides methods to retrieve the agent's name, model, instructions,
@@ -33,7 +20,7 @@ type Agent interface {
 	Name() string
 
 	// Model returns the agent's model
-	Model() string
+	Model() Model
 
 	// Instructions returns the agent's instructions
 	Instructions() string
@@ -48,7 +35,9 @@ type Agent interface {
 	ParallelToolCalls() bool
 
 	// RenderInstructions renders the agent's instructions with the provided context variables.
-	RenderInstructions(ContextVars) (string, error)
+	RenderInstructions(types.ContextVars) (string, error)
+
+	CallTool(context.Context, *messages.ToolCallMessage)
 }
 
 // DefaultAgent represents an agent with specific attributes and capabilities.
@@ -94,14 +83,14 @@ func (a *DefaultAgent) ParallelToolCalls() bool {
 }
 
 // RenderInstructions renders the agent's instructions with the provided context variables.
-func (a *DefaultAgent) RenderInstructions(cv ContextVars) (string, error) {
+func (a *DefaultAgent) RenderInstructions(cv types.ContextVars) (string, error) {
 	if !strings.Contains(a.instructions, "{{") {
 		return a.instructions, nil
 	}
 	return renderTemplate("instructions", a.instructions, cv)
 }
 
-func renderTemplate(name, templateStr string, cv ContextVars) (string, error) {
+func renderTemplate(name, templateStr string, cv types.ContextVars) (string, error) {
 	tmpl, err := template.New(name).Parse(templateStr)
 	if err != nil {
 		return "", err

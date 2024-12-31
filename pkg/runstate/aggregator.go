@@ -7,6 +7,8 @@ import (
 	"slices"
 
 	"github.com/casualjim/bubo/pkg/messages"
+	"github.com/casualjim/bubo/pkg/uuidx"
+	"github.com/goccy/go-json"
 	"github.com/google/uuid"
 )
 
@@ -17,6 +19,24 @@ type AggregatedMessages []messages.Message[messages.ModelMessage]
 // Len returns the number of messages in the collection.
 func (a AggregatedMessages) Len() int {
 	return len(a)
+}
+
+// NewAggregator creates and initializes a new Aggregator instance.
+// It sets up:
+// - A new unique identifier
+// - An empty message collection
+// - Zero-initialized usage statistics
+//
+// Example:
+//
+//	agg := NewAggregator()
+//	// agg is ready to accept messages and track usage
+func NewAggregator() *Aggregator {
+	return &Aggregator{
+		id:       uuidx.New(),
+		messages: make(AggregatedMessages, 0),
+		usage:    Usage{},
+	}
 }
 
 // Aggregator manages a collection of messages and their associated usage statistics.
@@ -38,6 +58,11 @@ func (a *Aggregator) ID() uuid.UUID {
 // Len returns the total number of messages currently held by the aggregator.
 func (a *Aggregator) Len() int {
 	return a.messages.Len()
+}
+
+// TurnLen returns the number of messages added to the aggregator since it was forked.
+func (a *Aggregator) TurnLen() int {
+	return len(a.messages) - a.initLen
 }
 
 // Messages returns a copy of all messages in the aggregator.
@@ -176,4 +201,124 @@ func (a *Aggregator) Join(b *Aggregator) {
 	// when it was forked, so any messages after that index are new.
 	a.messages = append(a.messages, b.messages[b.initLen:]...)
 	a.usage.AddUsage(&b.usage)
+}
+
+// Checkpoint creates a snapshot of the current aggregator state.
+// This allows saving the current state of messages and usage statistics
+// for later reference or restoration. The checkpoint includes:
+// - The aggregator's unique ID
+// - A deep copy of all current messages
+// - The current usage statistics
+//
+// Example:
+//
+//	agg := &Aggregator{...}
+//	checkpoint := agg.Checkpoint()  // Save current state
+//	// ... make changes to agg ...
+//	// checkpoint still holds the original state
+func (a *Aggregator) Checkpoint() Checkpoint {
+	return Checkpoint{
+		id:       a.id,
+		messages: slices.Clone(a.messages),
+		usage:    a.usage,
+		initLen:  a.initLen,
+	}
+}
+
+// Checkpoint represents a snapshot of an aggregator's state at a specific point in time.
+// It contains an immutable copy of the aggregator's state, including:
+// - The unique identifier of the source aggregator
+// - A snapshot of all messages at checkpoint time
+// - The usage statistics at checkpoint time
+//
+// Checkpoints are useful for:
+// - Creating save points in long-running operations
+// - Comparing states at different points in time
+// - Rolling back to previous states if needed
+type Checkpoint struct {
+	id       uuid.UUID          // Unique identifier for this aggregator
+	messages AggregatedMessages // Collection of messages being managed
+	usage    Usage              // Usage statistics for token consumption
+	initLen  int                // Initial length at fork time, used for joining
+}
+
+// ID returns the unique identifier of the aggregator that created this checkpoint.
+// This ID matches the source aggregator's ID at the time the checkpoint was created.
+func (c *Checkpoint) ID() uuid.UUID {
+	return c.id
+}
+
+// Messages returns a copy of all messages that were present in the aggregator
+// at the time this checkpoint was created. The returned slice is a deep copy,
+// so modifications won't affect the checkpoint's stored messages.
+func (c *Checkpoint) Messages() AggregatedMessages {
+	return slices.Clone(c.messages)
+}
+
+// Usage returns the usage statistics that were recorded in the aggregator
+// at the time this checkpoint was created. This includes all token counts
+// and usage metrics up to the checkpoint time.
+func (c *Checkpoint) Usage() Usage {
+	return c.usage
+}
+
+// MergeInto merges the checkpoint's state into another aggregator.
+// This operation:
+// - Appends messages from the checkpoint that were added after its fork point
+// - Combines the checkpoint's usage statistics with the target aggregator's
+//
+// This is useful when you want to apply a saved state to a different or
+// new aggregator instance.
+//
+// Example:
+//
+//	checkpoint := sourceAgg.Checkpoint()
+//	targetAgg := NewAggregator()
+//	checkpoint.MergeInto(targetAgg)  // targetAgg now contains checkpoint's state
+func (c *Checkpoint) MergeInto(other *Aggregator) {
+	other.messages = append(other.messages, c.messages[c.initLen:]...)
+	other.usage.AddUsage(&c.usage)
+}
+
+func (c Checkpoint) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		ID       string                                     `json:"id"`
+		Messages []*messages.Message[messages.ModelMessage] `json:"messages"`
+		Usage    Usage                                      `json:"usage"`
+		InitLen  int                                        `json:"init_len"`
+	}{
+		ID:       c.id.String(),
+		Messages: ptrSlice(c.messages),
+		Usage:    c.usage,
+		InitLen:  c.initLen,
+	})
+}
+
+func ptrSlice[T any](in []T) (out []*T) {
+	out = make([]*T, len(in))
+	for i, v := range in {
+		out[i] = &v
+	}
+	return
+}
+
+func (c *Checkpoint) UnmarshalJSON(data []byte) error {
+	var tmp struct {
+		ID       string                                    `json:"id"`
+		Messages []messages.Message[messages.ModelMessage] `json:"messages"`
+		Usage    Usage                                     `json:"usage"`
+		InitLen  int                                       `json:"init_len"`
+	}
+	if err := json.Unmarshal(data, &tmp); err != nil {
+		return err
+	}
+	if id, err := uuid.Parse(tmp.ID); err != nil {
+		return err
+	} else {
+		c.id = id
+	}
+	c.messages = tmp.Messages
+	c.usage = tmp.Usage
+	c.initLen = tmp.InitLen
+	return nil
 }

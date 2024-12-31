@@ -23,6 +23,42 @@
         pkgs = nixpkgs.legacyPackages.${system};
       in
       {
+        packages = {
+          #   bubo-tool-gen = pkgs.buildGoModule {
+          #     pname = "bubo-tool-gen";
+          #     version = "0.1.0";
+          #     src = ./.;
+          #     subPackages = [
+          #       "./cmd/bubo-tool-gen"
+          #       "./executor"
+          #       "./executor/pubsub"
+          #       "./provider"
+          #     ];
+          #     # subPackages = [ "." ];
+          #     # subPackages = [ "cmd/bubo-tool-gen" ];
+
+          #     modRoot = ".";
+
+          #     # This will be updated with the correct hash after first build
+          #     vendorHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+
+          #     env = {
+          #       CGO_ENABLED = "0";
+          #       GO111MODULE = "on";
+          #       GOFLAGS = "-modfile=go.mod";
+          #     };
+
+          #     buildPhase = ''
+          #       runHook preBuild
+          #       cd $modRoot
+          #       go build -v -o $out/bin/bubo-tool-gen ./cmd/bubo-tool-gen
+          #       runHook postBuild
+          #     '';
+          #   };
+
+          #   default = self.packages.${system}.bubo-tool-gen;
+        };
+
         checks = {
           # Add the pre-commit hooks. Some are not supported by default
           # so we add them manually.
@@ -78,6 +114,8 @@
             gotestdox
             gotools
             govulncheck
+            just
+            # self.packages.${system}.bubo-tool-gen
           ];
 
           shellHook = ''
@@ -86,6 +124,7 @@
           '';
 
         };
+
       }
     );
 }

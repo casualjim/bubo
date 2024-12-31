@@ -236,8 +236,9 @@ func Image(url string) ImageContentPart {
 // ImageContentPart represents an image content part with a URL.
 // It implements the ContentPart interface.
 type ImageContentPart struct {
-	URL string   `json:"image_url"` // URL pointing to the image
-	_   struct{} // require keyed usage
+	URL    string   `json:"image_url"` // URL pointing to the image
+	Detail string   `json:"detail"`
+	_      struct{} // require keyed usage
 }
 
 func (ImageContentPart) contentPart() {}

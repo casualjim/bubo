@@ -30,7 +30,7 @@ func toJSONSchema[T any]() *jsonschema.Schema {
 	return schema
 }
 
-func NewRunCommand[T any](agent bubo.Agent, thread *runstate.Aggregator, hook pubsub.Hook) (RunCommand[T], error) {
+func NewRunCommand[T any](agent bubo.Agent, thread *runstate.Aggregator, hook pubsub.Hook[T]) (RunCommand[T], error) {
 	var err error
 	if agent == nil {
 		err = errors.Join(err, errors.New("agent is required"))
@@ -98,7 +98,7 @@ type RunCommand[T any] struct {
 	Stream            bool
 	MaxTurns          int
 	ContextVariables  types.ContextVars
-	Hook              pubsub.Hook
+	Hook              pubsub.Hook[T]
 }
 
 func (r RunCommand[T]) WithStream(stream bool) RunCommand[T] {

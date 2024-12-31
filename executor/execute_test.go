@@ -24,7 +24,7 @@ func TestNewRunCommand(t *testing.T) {
 	t.Run("creates command with valid inputs", func(t *testing.T) {
 		agent := &mockAgent{}
 		thread := runstate.NewAggregator()
-		hook := &mockHook{}
+		hook := &mockHook[testResponse]{}
 
 		cmd, err := NewRunCommand[testResponse](agent, thread, hook)
 		require.NoError(t, err)
@@ -39,7 +39,7 @@ func TestNewRunCommand(t *testing.T) {
 	t.Run("creates command with gjson.Result type", func(t *testing.T) {
 		agent := &mockAgent{}
 		thread := runstate.NewAggregator()
-		hook := &mockHook{}
+		hook := &mockHook[gjson.Result]{}
 
 		cmd, err := NewRunCommand[gjson.Result](agent, thread, hook)
 		require.NoError(t, err)
@@ -58,7 +58,7 @@ func TestNewRunCommand(t *testing.T) {
 
 	t.Run("fails with nil agent", func(t *testing.T) {
 		thread := runstate.NewAggregator()
-		hook := &mockHook{}
+		hook := &mockHook[testResponse]{}
 
 		_, err := NewRunCommand[testResponse](nil, thread, hook)
 		require.Error(t, err)
@@ -67,7 +67,7 @@ func TestNewRunCommand(t *testing.T) {
 
 	t.Run("fails with nil thread", func(t *testing.T) {
 		agent := &mockAgent{}
-		hook := &mockHook{}
+		hook := &mockHook[testResponse]{}
 
 		_, err := NewRunCommand[testResponse](agent, nil, hook)
 		require.Error(t, err)
@@ -86,7 +86,7 @@ func TestNewRunCommand(t *testing.T) {
 	t.Run("unmarshaler works with regular struct", func(t *testing.T) {
 		agent := &mockAgent{}
 		thread := runstate.NewAggregator()
-		hook := &mockHook{}
+		hook := &mockHook[testResponse]{}
 
 		cmd, err := NewRunCommand[testResponse](agent, thread, hook)
 		require.NoError(t, err)
@@ -99,7 +99,7 @@ func TestNewRunCommand(t *testing.T) {
 	t.Run("unmarshaler fails with invalid json for regular struct", func(t *testing.T) {
 		agent := &mockAgent{}
 		thread := runstate.NewAggregator()
-		hook := &mockHook{}
+		hook := &mockHook[testResponse]{}
 
 		cmd, err := NewRunCommand[testResponse](agent, thread, hook)
 		require.NoError(t, err)
@@ -112,7 +112,7 @@ func TestNewRunCommand(t *testing.T) {
 func TestRunCommandMethods(t *testing.T) {
 	agent := &mockAgent{}
 	thread := runstate.NewAggregator()
-	hook := &mockHook{}
+	hook := &mockHook[testResponse]{}
 
 	cmd, err := NewRunCommand[testResponse](agent, thread, hook)
 	require.NoError(t, err)

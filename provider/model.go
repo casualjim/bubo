@@ -13,17 +13,7 @@ import (
 	"github.com/goccy/go-json"
 	"github.com/google/uuid"
 	"github.com/invopop/jsonschema"
-	"github.com/openai/openai-go"
 	orderedmap "github.com/wk8/go-ordered-map/v2"
-)
-
-type KnownModel string
-
-var (
-	GPT4o     = KnownModel(openai.ChatModelChatgpt4oLatest)
-	GPT4oMini = KnownModel(openai.ChatModelGPT4oMini)
-	O1        = KnownModel(openai.ChatModelO1)
-	O1Mini    = KnownModel(openai.ChatModelO1Mini)
 )
 
 type Provider interface {
@@ -36,9 +26,12 @@ type CompletionParams struct {
 	Thread         *runstate.Aggregator
 	Stream         bool
 	ResponseSchema *jsonschema.Schema
-	Model          KnownModel
-	Tools          []ToolDefinition
-	_              struct{}
+	Model          interface {
+		Name() string
+		Provider() Provider
+	}
+	Tools []ToolDefinition
+	_     struct{}
 }
 
 type ToolDefinition struct {

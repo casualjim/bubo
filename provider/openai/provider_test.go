@@ -87,7 +87,7 @@ func TestProvider_buildRequest(t *testing.T) {
 		Instructions: "Test instructions",
 		Thread:       aggregator,
 		Stream:       false,
-		Model:        provider.GPT4o,
+		Model:        GPT4oMini(),
 		Tools:        []provider.ToolDefinition{toolDef},
 	}
 
@@ -95,7 +95,7 @@ func TestProvider_buildRequest(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify the built request
-	assert.Equal(t, string(provider.GPT4o), string(chatParams.Model.Value))
+	assert.Equal(t, GPT4oMini().Name(), string(chatParams.Model.Value))
 	assert.Equal(t, int64(1), chatParams.N.Value)
 	assert.True(t, chatParams.ParallelToolCalls.Value)
 	assert.Equal(t, 0.1, chatParams.Temperature.Value)
@@ -163,7 +163,7 @@ func TestProvider_ChatCompletion_ContextCancellation(t *testing.T) {
 		Instructions: "Test instructions",
 		Thread:       aggregator,
 		Stream:       true,
-		Model:        provider.GPT4o,
+		Model:        GPT4oMini(),
 	}
 
 	events, err := p.ChatCompletion(ctx, params)
@@ -228,6 +228,7 @@ func TestProvider_buildRequest_ComplexTools(t *testing.T) {
 		Instructions: "Test instructions",
 		Thread:       aggregator,
 		Tools:        toolDefs,
+		Model:        GPT4oMini(),
 	}
 
 	chatParams, err := p.buildRequest(ctx, params)
@@ -285,7 +286,7 @@ func TestProvider_ChatCompletion(t *testing.T) {
 		Instructions: "Test instructions",
 		Thread:       aggregator,
 		Stream:       false,
-		Model:        provider.GPT4o,
+		Model:        GPT4oMini(),
 	}
 
 	events, err := p.ChatCompletion(ctx, params)
@@ -570,7 +571,7 @@ func TestProvider_ChatCompletion_Stream(t *testing.T) {
 		Instructions: "Test instructions",
 		Thread:       aggregator,
 		Stream:       true,
-		Model:        provider.GPT4o,
+		Model:        GPT4oMini(),
 	}
 
 	events, err := p.ChatCompletion(ctx, params)

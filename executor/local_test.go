@@ -325,12 +325,12 @@ func TestCallFunctionExtended(t *testing.T) {
 
 func TestHandleToolCalls(t *testing.T) {
 	t.Run("basic tool call", func(t *testing.T) {
-		broker := newMockBroker()
+		broker := newMockBroker[any]()
 		l := NewLocal[any](broker)
 		agent := newTestAgent()
 
 		runID := uuidx.New()
-		params := toolCallParams{
+		params := toolCallParams[any]{
 			runID:       runID,
 			agent:       agent,
 			contextVars: types.ContextVars{},
@@ -352,7 +352,7 @@ func TestHandleToolCalls(t *testing.T) {
 	})
 
 	t.Run("agent transfer before regular tools", func(t *testing.T) {
-		broker := newMockBroker()
+		broker := newMockBroker[any]()
 		l := NewLocal[any](broker)
 
 		nextTestAgent := newTestAgent()
@@ -381,7 +381,7 @@ func TestHandleToolCalls(t *testing.T) {
 		}
 
 		runID := uuidx.New()
-		params := toolCallParams{
+		params := toolCallParams[any]{
 			runID: runID,
 			agent: agent,
 			mem:   runstate.NewAggregator(),
@@ -407,7 +407,7 @@ func TestHandleToolCalls(t *testing.T) {
 	})
 
 	t.Run("context variable propagation", func(t *testing.T) {
-		broker := newMockBroker()
+		broker := newMockBroker[any]()
 		l := NewLocal[any](broker)
 
 		var toolContextVars types.ContextVars
@@ -449,7 +449,7 @@ func TestHandleToolCalls(t *testing.T) {
 		}
 
 		runID := uuidx.New()
-		params := toolCallParams{
+		params := toolCallParams[any]{
 			runID: runID,
 			agent: agent,
 			mem:   runstate.NewAggregator(),
@@ -475,7 +475,7 @@ func TestHandleToolCalls(t *testing.T) {
 	})
 
 	t.Run("memory state preservation", func(t *testing.T) {
-		broker := newMockBroker()
+		broker := newMockBroker[any]()
 		l := NewLocal[any](broker)
 
 		agent := &testAgent{
@@ -499,7 +499,7 @@ func TestHandleToolCalls(t *testing.T) {
 
 		runID := uuidx.New()
 		mem := runstate.NewAggregator()
-		params := toolCallParams{
+		params := toolCallParams[any]{
 			runID: runID,
 			agent: agent,
 			mem:   mem,
@@ -526,31 +526,31 @@ func TestHandleToolCalls(t *testing.T) {
 
 		// Wait for first tool response
 		event1, err := broker.waitForEvent(runID.String(), time.Second, func(e pubsub.Event) bool {
-			if resp, ok := e.(pubsub.Response[messages.ToolResponse]); ok {
-				return resp.Response.ToolName == "tool1"
+			if resp, ok := e.(pubsub.Request[messages.ToolResponse]); ok {
+				return resp.Message.ToolName == "tool1"
 			}
 			return false
 		})
 		require.NoError(t, err)
 		require.NotNil(t, event1)
-		resp1 := event1.(pubsub.Response[messages.ToolResponse])
-		assert.Equal(t, "result1", resp1.Response.Content)
+		resp1 := event1.(pubsub.Request[messages.ToolResponse])
+		assert.Equal(t, "result1", resp1.Message.Content)
 
 		// Wait for second tool response
 		event2, err := broker.waitForEvent(runID.String(), time.Second, func(e pubsub.Event) bool {
-			if resp, ok := e.(pubsub.Response[messages.ToolResponse]); ok {
-				return resp.Response.ToolName == "tool2"
+			if resp, ok := e.(pubsub.Request[messages.ToolResponse]); ok {
+				return resp.Message.ToolName == "tool2"
 			}
 			return false
 		})
 		require.NoError(t, err)
 		require.NotNil(t, event2)
-		resp2 := event2.(pubsub.Response[messages.ToolResponse])
-		assert.Equal(t, "result2", resp2.Response.Content)
+		resp2 := event2.(pubsub.Request[messages.ToolResponse])
+		assert.Equal(t, "result2", resp2.Message.Content)
 	})
 
 	t.Run("multiple agent transfers", func(t *testing.T) {
-		broker := newMockBroker()
+		broker := newMockBroker[any]()
 		l := NewLocal[any](broker)
 
 		nextTestAgent1 := newTestAgent()
@@ -581,7 +581,7 @@ func TestHandleToolCalls(t *testing.T) {
 		}
 
 		runID := uuidx.New()
-		params := toolCallParams{
+		params := toolCallParams[any]{
 			runID: runID,
 			agent: agent,
 			mem:   runstate.NewAggregator(),
@@ -613,16 +613,16 @@ type mockSubscription struct {
 
 func (m *mockSubscription) Unsubscribe() {}
 
-type mockTopic struct {
-	pubsub.Topic
+type mockTopic[T any] struct {
+	pubsub.Topic[T]
 	mu         sync.RWMutex
 	published  []pubsub.Event
-	hook       pubsub.Hook
+	hook       pubsub.Hook[T]
 	eventsChan chan pubsub.Event
-	subscribe  func(ctx context.Context, hook pubsub.Hook) (pubsub.Subscription, error)
+	subscribe  func(ctx context.Context, hook pubsub.Hook[T]) (pubsub.Subscription, error)
 }
 
-func (m *mockTopic) Publish(ctx context.Context, event pubsub.Event) error {
+func (m *mockTopic[T]) Publish(ctx context.Context, event pubsub.Event) error {
 	m.mu.Lock()
 	m.published = append(m.published, event)
 	m.mu.Unlock()
@@ -634,7 +634,7 @@ func (m *mockTopic) Publish(ctx context.Context, event pubsub.Event) error {
 	return nil
 }
 
-func (m *mockTopic) Subscribe(ctx context.Context, hook pubsub.Hook) (pubsub.Subscription, error) {
+func (m *mockTopic[T]) Subscribe(ctx context.Context, hook pubsub.Hook[T]) (pubsub.Subscription, error) {
 	if m.subscribe != nil {
 		return m.subscribe(ctx, hook)
 	}
@@ -645,7 +645,7 @@ func (m *mockTopic) Subscribe(ctx context.Context, hook pubsub.Hook) (pubsub.Sub
 }
 
 // waitForEvent waits for an event that matches the given predicate
-func (m *mockTopic) waitForEvent(timeout time.Duration, predicate func(pubsub.Event) bool) (pubsub.Event, error) {
+func (m *mockTopic[T]) waitForEvent(timeout time.Duration, predicate func(pubsub.Event) bool) (pubsub.Event, error) {
 	// Initialize channel if needed
 	m.mu.Lock()
 	if m.eventsChan == nil {
@@ -679,19 +679,19 @@ func (m *mockTopic) waitForEvent(timeout time.Duration, predicate func(pubsub.Ev
 	}
 }
 
-type mockBroker struct {
-	pubsub.Broker
+type mockBroker[T any] struct {
+	pubsub.Broker[T]
 	mu     sync.RWMutex
-	topics map[string]*mockTopic
+	topics map[string]*mockTopic[T]
 }
 
-func newMockBroker() *mockBroker {
-	return &mockBroker{
-		topics: make(map[string]*mockTopic),
+func newMockBroker[T any]() *mockBroker[T] {
+	return &mockBroker[T]{
+		topics: make(map[string]*mockTopic[T]),
 	}
 }
 
-func (m *mockBroker) Topic(_ context.Context, id string) pubsub.Topic {
+func (m *mockBroker[T]) Topic(_ context.Context, id string) pubsub.Topic[T] {
 	m.mu.RLock()
 	t, ok := m.topics[id]
 	m.mu.RUnlock()
@@ -708,7 +708,7 @@ func (m *mockBroker) Topic(_ context.Context, id string) pubsub.Topic {
 		return t
 	}
 
-	t = &mockTopic{
+	t = &mockTopic[T]{
 		eventsChan: make(chan pubsub.Event, 100),
 	}
 	m.topics[id] = t
@@ -716,7 +716,7 @@ func (m *mockBroker) Topic(_ context.Context, id string) pubsub.Topic {
 }
 
 // Helper function to wait for a specific event type and optionally validate its content
-func (m *mockBroker) waitForEvent(id string, timeout time.Duration, predicate func(pubsub.Event) bool) (pubsub.Event, error) {
+func (m *mockBroker[T]) waitForEvent(id string, timeout time.Duration, predicate func(pubsub.Event) bool) (pubsub.Event, error) {
 	topic, ok := m.topics[id]
 	if !ok {
 		return nil, fmt.Errorf("topic %s not found", id)
@@ -745,12 +745,12 @@ func (m *mockProvider) ChatCompletion(ctx context.Context, params provider.Compl
 
 func TestRun(t *testing.T) {
 	t.Run("successful completion", func(t *testing.T) {
-		broker := newMockBroker()
+		broker := newMockBroker[string]()
 		local := NewLocal[string](broker)
 
 		agent := newTestAgent()
 		thread := runstate.NewAggregator()
-		hook := &mockHook{}
+		hook := &mockHook[string]{}
 
 		mockResp := provider.Response[messages.AssistantMessage]{
 			Response: messages.AssistantMessage{
@@ -773,22 +773,22 @@ func TestRun(t *testing.T) {
 
 		// Wait for final response
 		event, err := broker.waitForEvent(cmd.ID.String(), time.Second, func(e pubsub.Event) bool {
-			_, ok := e.(pubsub.Response[string])
+			_, ok := e.(pubsub.Result[string])
 			return ok
 		})
 		require.NoError(t, err)
 
-		resp := event.(pubsub.Response[string])
-		assert.Equal(t, "test result", resp.Response)
+		resp := event.(pubsub.Result[string])
+		assert.Equal(t, "test result", resp.Result)
 	})
 
 	t.Run("provider error", func(t *testing.T) {
-		broker := newMockBroker()
+		broker := newMockBroker[string]()
 		local := NewLocal[string](broker)
 
 		agent := newTestAgent()
 		thread := runstate.NewAggregator()
-		hook := &mockHook{}
+		hook := &mockHook[string]{}
 
 		prov := &mockProvider{
 			err: fmt.Errorf("provider error"),
@@ -813,7 +813,7 @@ func TestRun(t *testing.T) {
 	})
 
 	t.Run("render instructions error", func(t *testing.T) {
-		broker := newMockBroker()
+		broker := newMockBroker[string]()
 		local := NewLocal[string](broker)
 
 		agent := &testAgent{
@@ -831,7 +831,7 @@ func TestRun(t *testing.T) {
 			},
 		}
 		thread := runstate.NewAggregator()
-		hook := &mockHook{}
+		hook := &mockHook[string]{}
 
 		cmd, err := NewRunCommand[string](agent, thread, hook)
 		require.NoError(t, err)
@@ -851,12 +851,12 @@ func TestRun(t *testing.T) {
 	})
 
 	t.Run("tool call handling", func(t *testing.T) {
-		broker := newMockBroker()
+		broker := newMockBroker[string]()
 		local := NewLocal[string](broker)
 
 		agent := newTestAgent()
 		thread := runstate.NewAggregator()
-		hook := &mockHook{}
+		hook := &mockHook[string]{}
 
 		toolCallResp := provider.Response[messages.ToolCallMessage]{
 			Response: messages.ToolCallMessage{
@@ -898,8 +898,8 @@ func TestRun(t *testing.T) {
 
 		// Wait for tool response
 		toolResponseEvent, err := broker.waitForEvent(cmd.ID.String(), time.Second, func(e pubsub.Event) bool {
-			if resp, ok := e.(pubsub.Response[messages.ToolResponse]); ok {
-				return resp.Response.Content == "result"
+			if resp, ok := e.(pubsub.Request[messages.ToolResponse]); ok {
+				return resp.Message.Content == "result"
 			}
 			return false
 		})
@@ -908,8 +908,8 @@ func TestRun(t *testing.T) {
 
 		// Wait for final response
 		finalEvent, err := broker.waitForEvent(cmd.ID.String(), time.Second, func(e pubsub.Event) bool {
-			if resp, ok := e.(pubsub.Response[string]); ok {
-				return resp.Response == "test result"
+			if resp, ok := e.(pubsub.Result[string]); ok {
+				return resp.Result == "test result"
 			}
 			return false
 		})
@@ -918,12 +918,12 @@ func TestRun(t *testing.T) {
 	})
 
 	t.Run("context cancellation", func(t *testing.T) {
-		broker := newMockBroker()
+		broker := newMockBroker[string]()
 		local := NewLocal[string](broker)
 
 		agent := newTestAgent()
 		thread := runstate.NewAggregator()
-		hook := &mockHook{}
+		hook := &mockHook[string]{}
 
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // Cancel immediately
@@ -941,7 +941,7 @@ func TestRun(t *testing.T) {
 	})
 
 	t.Run("parallel tool calls with error", func(t *testing.T) {
-		broker := newMockBroker()
+		broker := newMockBroker[string]()
 		local := NewLocal[string](broker)
 
 		agent := newTestAgent()
@@ -962,7 +962,7 @@ func TestRun(t *testing.T) {
 		}
 
 		thread := runstate.NewAggregator()
-		hook := &mockHook{}
+		hook := &mockHook[string]{}
 
 		toolCallResp := provider.Response[messages.ToolCallMessage]{
 			Response: messages.ToolCallMessage{
@@ -996,18 +996,18 @@ func TestRun(t *testing.T) {
 	})
 
 	t.Run("nil subscription error", func(t *testing.T) {
-		broker := newMockBroker()
-		topic := &mockTopic{
+		broker := newMockBroker[string]()
+		topic := &mockTopic[string]{
 			eventsChan: make(chan pubsub.Event, 100),
-			subscribe: func(ctx context.Context, hook pubsub.Hook) (pubsub.Subscription, error) {
+			subscribe: func(ctx context.Context, hook pubsub.Hook[string]) (pubsub.Subscription, error) {
 				return nil, nil
 			},
 		}
 
-		cmd, err := NewRunCommand[string](newTestAgent(), runstate.NewAggregator(), &mockHook{})
+		cmd, err := NewRunCommand[string](newTestAgent(), runstate.NewAggregator(), &mockHook[string]{})
 		require.NoError(t, err)
 
-		broker.topics = map[string]*mockTopic{
+		broker.topics = map[string]*mockTopic[string]{
 			cmd.ID.String(): topic,
 		}
 		local := NewLocal[string](broker)
@@ -1018,7 +1018,7 @@ func TestRun(t *testing.T) {
 	})
 
 	t.Run("multiple tool calls with context vars", func(t *testing.T) {
-		broker := newMockBroker()
+		broker := newMockBroker[string]()
 		local := NewLocal[string](broker)
 
 		agent := newTestAgent()
@@ -1054,7 +1054,7 @@ func TestRun(t *testing.T) {
 		}
 
 		thread := runstate.NewAggregator()
-		hook := &mockHook{}
+		hook := &mockHook[string]{}
 
 		toolCallResp := provider.Response[messages.ToolCallMessage]{
 			Response: messages.ToolCallMessage{
@@ -1082,8 +1082,8 @@ func TestRun(t *testing.T) {
 		deadline := time.Now().Add(time.Second)
 		for time.Now().Before(deadline) && !foundValue {
 			event, err := broker.waitForEvent(cmd.ID.String(), 100*time.Millisecond, func(e pubsub.Event) bool {
-				if resp, ok := e.(pubsub.Response[messages.ToolResponse]); ok {
-					if resp.Response.Content == "value" {
+				if resp, ok := e.(pubsub.Request[messages.ToolResponse]); ok {
+					if resp.Message.Content == "value" {
 						foundValue = true
 						return true
 					}
@@ -1098,12 +1098,12 @@ func TestRun(t *testing.T) {
 	})
 
 	t.Run("max turns limit", func(t *testing.T) {
-		broker := newMockBroker()
+		broker := newMockBroker[string]()
 		local := NewLocal[string](broker)
 
 		agent := newTestAgent()
 		thread := runstate.NewAggregator()
-		hook := &mockHook{}
+		hook := &mockHook[string]{}
 
 		cmd, err := NewRunCommand[string](agent, thread, hook)
 		require.NoError(t, err)
@@ -1127,18 +1127,18 @@ func TestNewLocal(t *testing.T) {
 	})
 
 	t.Run("valid broker", func(t *testing.T) {
-		broker := newMockBroker()
+		broker := newMockBroker[any]()
 		local := NewLocal[any](broker)
 		assert.NotNil(t, local)
 	})
 }
 
 func TestHandleToolCallsErrors(t *testing.T) {
-	broker := newMockBroker()
+	broker := newMockBroker[any]()
 	l := NewLocal[any](broker)
 
 	runID := uuidx.New()
-	params := toolCallParams{
+	params := toolCallParams[any]{
 		runID: runID,
 		agent: newTestAgent(),
 		mem:   runstate.NewAggregator(),
@@ -1159,7 +1159,7 @@ func TestHandleToolCallsErrors(t *testing.T) {
 }
 
 func TestHandleToolCallsWithContextVars(t *testing.T) {
-	broker := newMockBroker()
+	broker := newMockBroker[any]()
 	l := NewLocal[any](broker)
 
 	contextVars := types.ContextVars{"test": "value"}
@@ -1174,7 +1174,7 @@ func TestHandleToolCallsWithContextVars(t *testing.T) {
 	}
 
 	runID := uuidx.New()
-	params := toolCallParams{
+	params := toolCallParams[any]{
 		runID:       runID,
 		agent:       agent,
 		contextVars: contextVars,
@@ -1196,8 +1196,8 @@ func TestHandleToolCallsWithContextVars(t *testing.T) {
 
 	// Wait for tool response
 	event, err := broker.waitForEvent(runID.String(), time.Second, func(e pubsub.Event) bool {
-		if resp, ok := e.(pubsub.Response[messages.ToolResponse]); ok {
-			return resp.Response.Content == "value"
+		if resp, ok := e.(pubsub.Request[messages.ToolResponse]); ok {
+			return resp.Message.Content == "value"
 		}
 		return false
 	})
@@ -1206,7 +1206,7 @@ func TestHandleToolCallsWithContextVars(t *testing.T) {
 }
 
 func TestHandleToolCallsWithAgentReturn(t *testing.T) {
-	broker := newMockBroker()
+	broker := newMockBroker[any]()
 	l := NewLocal[any](broker)
 
 	nextTestAgent := newTestAgent()
@@ -1223,7 +1223,7 @@ func TestHandleToolCallsWithAgentReturn(t *testing.T) {
 	}
 
 	runID := uuidx.New()
-	params := toolCallParams{
+	params := toolCallParams[any]{
 		runID: runID,
 		agent: agent,
 		mem:   runstate.NewAggregator(),
@@ -1244,12 +1244,12 @@ func TestHandleToolCallsWithAgentReturn(t *testing.T) {
 }
 
 func TestHandleToolCallsWithInvalidJSON(t *testing.T) {
-	broker := newMockBroker()
+	broker := newMockBroker[any]()
 	l := NewLocal[any](broker)
 
 	agent := newTestAgent()
 	runID := uuidx.New()
-	params := toolCallParams{
+	params := toolCallParams[any]{
 		runID: runID,
 		agent: agent,
 		mem:   runstate.NewAggregator(),
@@ -1280,7 +1280,7 @@ func (t textMarshaler) MarshalText() ([]byte, error) {
 }
 
 func TestHandleToolCallsWithMixedTools(t *testing.T) {
-	broker := newMockBroker()
+	broker := newMockBroker[any]()
 	l := NewLocal[any](broker)
 
 	var executionOrder []string
@@ -1332,7 +1332,7 @@ func TestHandleToolCallsWithMixedTools(t *testing.T) {
 		contextValue = ""
 
 		runID := uuidx.New()
-		params := toolCallParams{
+		params := toolCallParams[any]{
 			runID: runID,
 			agent: agent,
 			mem:   runstate.NewAggregator(),
@@ -1363,7 +1363,7 @@ func TestHandleToolCallsWithMixedTools(t *testing.T) {
 		contextValue = ""
 
 		runID := uuidx.New()
-		params := toolCallParams{
+		params := toolCallParams[any]{
 			runID: runID,
 			agent: agent,
 			mem:   runstate.NewAggregator(),
@@ -1395,7 +1395,7 @@ func TestHandleToolCallsWithMixedTools(t *testing.T) {
 		contextValue = ""
 
 		runID := uuidx.New()
-		params := toolCallParams{
+		params := toolCallParams[any]{
 			runID: runID,
 			agent: agent,
 			mem:   runstate.NewAggregator(),
@@ -1432,8 +1432,8 @@ func TestHandleToolCallsWithMixedTools(t *testing.T) {
 }
 
 func TestHandleToolCallsContextPropagation(t *testing.T) {
-	broker := newMockBroker()
-	l := NewLocal[any](broker)
+	broker := newMockBroker[any]()
+	l := NewLocal(broker)
 
 	var toolValues []string
 	agent := &testAgent{
@@ -1475,7 +1475,7 @@ func TestHandleToolCallsContextPropagation(t *testing.T) {
 	}
 
 	runID := uuidx.New()
-	params := toolCallParams{
+	params := toolCallParams[any]{
 		runID: runID,
 		agent: agent,
 		mem:   runstate.NewAggregator(),

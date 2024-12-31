@@ -1,14 +1,10 @@
 package bubo
 
 import (
-	"context"
-	"os"
 	"strings"
 	"text/template"
 
-	"github.com/casualjim/bubo/pkg/messages"
 	"github.com/casualjim/bubo/types"
-	openai "github.com/openai/openai-go"
 )
 
 // Agent represents an interface for an agent with various capabilities.
@@ -36,16 +32,16 @@ type Agent interface {
 
 	// RenderInstructions renders the agent's instructions with the provided context variables.
 	RenderInstructions(types.ContextVars) (string, error)
-
-	CallTool(context.Context, *messages.ToolCallMessage)
 }
+
+var _ Agent = (*DefaultAgent)(nil)
 
 // DefaultAgent represents an agent with specific attributes and capabilities.
 // It includes the agent's name, model, instructions, function definitions, tool choice,
 // and whether it supports parallel tool calls.
 type DefaultAgent struct {
 	name              string
-	model             string
+	model             Model
 	instructions      string
 	tools             []AgentToolDefinition
 	toolChoice        string
@@ -58,7 +54,7 @@ func (a *DefaultAgent) Name() string {
 }
 
 // Model returns the agent's model.
-func (a *DefaultAgent) Model() string {
+func (a *DefaultAgent) Model() Model {
 	return a.model
 }
 
@@ -149,12 +145,9 @@ func (a *DefaultAgent) WithoutParallelToolCalls() *DefaultAgent {
 }
 
 // NewAgent creates a new DefaultAgent with the provided parameters.
-func NewAgent(name, model, instructions string) *DefaultAgent {
-	if model == "" {
-		model = os.Getenv("OPENAI_DEFAULT_MODEL")
-		if model == "" {
-			model = openai.ChatModelGPT4oMini
-		}
+func NewAgent(name string, model Model, instructions string) *DefaultAgent {
+	if model == nil {
+		panic("model is required")
 	}
 	return &DefaultAgent{
 		name:              name,

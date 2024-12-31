@@ -66,15 +66,3 @@ type AgentToolDefinition struct {
 	Parameters  map[string]string
 	Function    any
 }
-
-/*
-func (afd *AgentToolDefinition) ToOpenAI(reflector *jsonschema.Reflector) openai.ChatCompletionToolParam {
-	if reflector == nil {
-		reflector = &jsonschema.Reflector{
-			AllowAdditionalProperties: true,
-			DoNotReference:            true,
-		}
-	}
-	return functionDefinitionJSON(reflector, *afd)
-}
-*/

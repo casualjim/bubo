@@ -31,10 +31,10 @@ var _ Executor[any] = &Local[any]{}
 type Temporal struct{}
 
 type Local[T any] struct {
-	broker pubsub.Broker
+	broker pubsub.Broker[T]
 }
 
-func NewLocal[T any](broker pubsub.Broker) *Local[T] {
+func NewLocal[T any](broker pubsub.Broker[T]) *Local[T] {
 	if broker == nil {
 		panic("broker cannot be nil")
 	}
@@ -93,10 +93,28 @@ func (l *Local[T]) Run(ctx context.Context, command RunCommand[T]) error {
 				return
 			}
 
+			var toolDefs []provider.ToolDefinition
+			agentTools := activeAgent.Tools()
+			if len(agentTools) > 0 {
+				toolDefs = make([]provider.ToolDefinition, len(agentTools))
+				for i, tool := range agentTools {
+					toolDefs[i] = provider.ToolDefinition{
+						Name:        tool.Name,
+						Description: tool.Description,
+						Parameters:  tool.Parameters,
+						Function:    tool.Function,
+					}
+				}
+			}
+
 			stream, err := prov.ChatCompletion(ctx, provider.CompletionParams{
-				RunID:        command.ID,
-				Instructions: instructions,
-				Thread:       thread,
+				RunID:          command.ID,
+				Instructions:   instructions,
+				Thread:         thread,
+				Stream:         command.Stream,
+				Model:          model,
+				ResponseSchema: command.ResponseSchema,
+				Tools:          toolDefs,
 			})
 			if err != nil {
 				ee, _ := wrapErr(command.ID, thread.ID(), activeAgent.Name(), err)
@@ -119,10 +137,10 @@ func (l *Local[T]) Run(ctx context.Context, command RunCommand[T]) error {
 										slog.ErrorContext(ctx, "failed to unmarshal response value", slogx.Error(perr))
 									}
 								}
-								if perr := topic.Publish(ctx, pubsub.Response[T]{
+								if perr := topic.Publish(ctx, pubsub.Result[T]{
 									RunID:     command.ID,
 									TurnID:    thread.ID(),
-									Response:  value,
+									Result:    value,
 									Sender:    activeAgent.Name(),
 									Timestamp: strfmt.DateTime(time.Now()),
 								}); perr != nil {
@@ -159,7 +177,7 @@ func (l *Local[T]) Run(ctx context.Context, command RunCommand[T]) error {
 							slog.ErrorContext(ctx, "failed to publish response event", slogx.Error(perr))
 						}
 
-						if agent, err := l.handleToolCalls(ctx, toolCallParams{
+						if agent, err := l.handleToolCalls(ctx, toolCallParams[T]{
 							mem:         thread.Fork(),
 							agent:       activeAgent,
 							runID:       command.ID,
@@ -202,10 +220,10 @@ func (l *Local[T]) Run(ctx context.Context, command RunCommand[T]) error {
 							}
 							continue
 						}
-						if perr := topic.Publish(ctx, pubsub.Response[T]{
+						if perr := topic.Publish(ctx, pubsub.Result[T]{
 							RunID:     command.ID,
 							TurnID:    thread.ID(),
-							Response:  value,
+							Result:    value,
 							Sender:    activeAgent.Name(),
 							Timestamp: strfmt.DateTime(time.Now()),
 						}); perr != nil {
@@ -243,16 +261,16 @@ func wrapErr(runID, turnID uuid.UUID, sender string, err error) (pubsub.Error, b
 	}, true
 }
 
-type toolCallParams struct {
+type toolCallParams[T any] struct {
 	runID       uuid.UUID
 	agent       bubo.Agent
 	contextVars types.ContextVars
 	mem         *runstate.Aggregator
 	toolCalls   messages.ToolCallMessage
-	topic       pubsub.Topic
+	topic       pubsub.Topic[T]
 }
 
-func (l *Local[T]) handleToolCalls(ctx context.Context, params toolCallParams) (bubo.Agent, error) {
+func (l *Local[T]) handleToolCalls(ctx context.Context, params toolCallParams[T]) (bubo.Agent, error) {
 	agentTools := make(map[string]bubo.AgentToolDefinition, len(params.agent.Tools()))
 	for tool := range slices.Values(params.agent.Tools()) {
 		agentTools[tool.Name] = tool
@@ -353,10 +371,10 @@ func (l *Local[T]) handleToolCalls(ctx context.Context, params toolCallParams) (
 		}
 
 		// Publish tool response
-		perr := params.topic.Publish(ctx, pubsub.Response[messages.ToolResponse]{
+		perr := params.topic.Publish(ctx, pubsub.Request[messages.ToolResponse]{
 			RunID:  params.runID,
 			TurnID: params.mem.ID(),
-			Response: messages.ToolResponse{
+			Message: messages.ToolResponse{
 				ToolName:   tool.Name,
 				ToolCallID: item.call.ID,
 				Content:    fmt.Sprintf("transfer to agent %s", result.Agent.Name()),
@@ -415,10 +433,10 @@ func (l *Local[T]) handleToolCalls(ctx context.Context, params toolCallParams) (
 		}
 
 		// Publish tool response
-		perr := params.topic.Publish(ctx, pubsub.Response[messages.ToolResponse]{
+		perr := params.topic.Publish(ctx, pubsub.Request[messages.ToolResponse]{
 			RunID:  params.runID,
 			TurnID: params.mem.ID(),
-			Response: messages.ToolResponse{
+			Message: messages.ToolResponse{
 				ToolName:   tool.Name,
 				ToolCallID: item.call.ID,
 				Content:    result.Value,

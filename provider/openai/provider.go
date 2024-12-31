@@ -58,15 +58,21 @@ func (p *Provider) buildRequest(_ context.Context, params *provider.CompletionPa
 		}
 	}
 
-	return openai.ChatCompletionNewParams{
-		Messages:          openai.F(result),
-		Model:             openai.F(openai.ChatModel(params.Model)),
-		N:                 openai.Int(1),
-		ParallelToolCalls: openai.Bool(true),
-		Temperature:       openai.Float(0.1),
-		Tools:             openai.F(tools),
-		User:              openai.String(user),
-	}, nil
+	oaiParams := openai.ChatCompletionNewParams{
+		Messages:    openai.F(result),
+		Model:       openai.F(params.Model.Name()),
+		N:           openai.Int(1),
+		Temperature: openai.Float(0.1),
+	}
+	if len(tools) > 0 {
+		oaiParams.Tools = openai.F(tools)
+		oaiParams.ParallelToolCalls = openai.Bool(true)
+	}
+	if strings.TrimSpace(user) != "" {
+		oaiParams.User = openai.String(user)
+	}
+
+	return oaiParams, nil
 }
 
 func (p *Provider) ChatCompletion(ctx context.Context, params provider.CompletionParams) (<-chan provider.StreamEvent, error) {

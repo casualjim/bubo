@@ -57,13 +57,16 @@ func (m *mockHook) OnToolCallResponse(ctx context.Context, msg messages.Message[
 	m.lastToolCallResp = msg
 }
 
+func (m *mockHook) OnResult(ctx context.Context, result interface{}) {
+}
+
 func (m *mockHook) OnError(ctx context.Context, err error) {
 	m.errorCalled = true
 	m.lastError = err
 }
 
 func TestLoggingHook(t *testing.T) {
-	hook := LoggingHook()
+	hook := LoggingHook[any]()
 	ctx := context.Background()
 
 	t.Run("OnUserPrompt", func(t *testing.T) {

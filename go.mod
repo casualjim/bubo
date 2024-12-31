@@ -4,12 +4,15 @@ go 1.23.3
 
 require (
 	github.com/alphadose/haxmap v1.4.1
+	github.com/fatih/color v1.18.0
 	github.com/fogfish/opts v0.0.4
 	github.com/go-openapi/strfmt v0.23.0
 	github.com/go-openapi/swag v0.23.0
 	github.com/goccy/go-json v0.10.4
 	github.com/google/uuid v1.6.0
-	github.com/invopop/jsonschema v0.12.0
+	github.com/hokaccha/go-prettyjson v0.0.0-20211117102719-0474bc63780f
+	github.com/invopop/jsonschema v0.13.0
+	github.com/joho/godotenv v1.5.1
 	github.com/openai/openai-go v0.1.0-alpha.41
 	github.com/phsym/zeroslog v0.2.0
 	github.com/rs/zerolog v1.33.0
@@ -31,7 +34,7 @@ require (
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
-	github.com/mattn/go-isatty v0.0.19 // indirect
+	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/oklog/ulid v1.3.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect

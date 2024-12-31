@@ -22,13 +22,13 @@ var (
 	errorJSON    = []byte(`{"type":"error"}`)
 )
 
-type Broker interface {
-	Topic(context.Context, string) Topic
+type Broker[T any] interface {
+	Topic(context.Context, string) Topic[T]
 }
 
-type Topic interface {
+type Topic[T any] interface {
 	Publish(context.Context, Event) error
-	Subscribe(context.Context, Hook) (Subscription, error)
+	Subscribe(context.Context, Hook[T]) (Subscription, error)
 }
 
 type Subscription interface {
@@ -379,7 +379,7 @@ func (r *Request[T]) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-type Response[T any] struct {
+type Response[T messages.Response] struct {
 	RunID     uuid.UUID       `json:"run_id"`
 	TurnID    uuid.UUID       `json:"turn_id"`
 	Response  T               `json:"response"`
@@ -471,6 +471,117 @@ func (r *Response[T]) UnmarshalJSON(data []byte) error {
 	}
 	if err := json.Unmarshal([]byte(response.Raw), &r.Response); err != nil {
 		return fmt.Errorf("invalid response: %w", err)
+	}
+
+	if sender := gjson.GetBytes(data, "sender"); sender.Exists() {
+		r.Sender = sender.String()
+	}
+
+	if timestamp := gjson.GetBytes(data, "timestamp"); timestamp.Exists() {
+		if err := r.Timestamp.UnmarshalText([]byte(timestamp.String())); err != nil {
+			return fmt.Errorf("invalid timestamp: %w", err)
+		}
+	}
+
+	if meta := gjson.GetBytes(data, "meta"); meta.Exists() {
+		r.Meta = meta
+	}
+
+	return nil
+}
+
+type Result[T any] struct {
+	RunID     uuid.UUID       `json:"run_id"`
+	TurnID    uuid.UUID       `json:"turn_id"`
+	Result    T               `json:"result"`
+	Sender    string          `json:"sender,omitempty"`
+	Timestamp strfmt.DateTime `json:"timestamp,omitempty"`
+	Meta      gjson.Result    `json:"meta,omitempty"`
+}
+
+func (Result[T]) pubsubEvent() {}
+
+// MarshalJSON implements custom JSON marshaling for Result[T]
+func (r Result[T]) MarshalJSON() ([]byte, error) {
+	result := responseJSON
+
+	var err error
+	result, err = sjson.SetBytes(result, "run_id", r.RunID.String())
+	if err != nil {
+		return nil, err
+	}
+
+	result, err = sjson.SetBytes(result, "turn_id", r.TurnID.String())
+	if err != nil {
+		return nil, err
+	}
+
+	responseBytes, err := json.Marshal(r.Result)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal Result: %w", err)
+	}
+	result, err = sjson.SetRawBytes(result, "result", responseBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	if r.Sender != "" {
+		result, err = sjson.SetBytes(result, "sender", r.Sender)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if !r.Timestamp.IsZero() {
+		result, err = sjson.SetBytes(result, "timestamp", r.Timestamp.String())
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if r.Meta.Exists() {
+		result, err = sjson.SetRawBytes(result, "meta", []byte(r.Meta.Raw))
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return result, nil
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for Result[T]
+func (r *Result[T]) UnmarshalJSON(data []byte) error {
+	if !gjson.ValidBytes(data) {
+		return fmt.Errorf("invalid json: %s", data)
+	}
+
+	msgType := gjson.GetBytes(data, "type")
+	if !msgType.Exists() || msgType.String() != "result" {
+		return fmt.Errorf("missing or invalid type, expected 'result'")
+	}
+
+	runID := gjson.GetBytes(data, "run_id")
+	if !runID.Exists() {
+		return fmt.Errorf("missing required field 'run_id'")
+	}
+	if err := r.RunID.UnmarshalText([]byte(runID.String())); err != nil {
+		return fmt.Errorf("invalid run_id: %w", err)
+	}
+
+	turnID := gjson.GetBytes(data, "turn_id")
+	if !turnID.Exists() {
+		return fmt.Errorf("missing required field 'turn_id'")
+	}
+	if err := r.TurnID.UnmarshalText([]byte(turnID.String())); err != nil {
+		return fmt.Errorf("invalid turn_id: %w", err)
+	}
+
+	response := gjson.GetBytes(data, "result")
+	if !response.Exists() {
+		return fmt.Errorf("missing required field 'result'")
+	}
+	if err := json.Unmarshal([]byte(response.Raw), &r.Result); err != nil {
+		return fmt.Errorf("invalid result: %w", err)
 	}
 
 	if sender := gjson.GetBytes(data, "sender"); sender.Exists() {

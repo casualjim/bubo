@@ -1,26 +1,35 @@
 package bubo
 
 import (
-	"os"
 	"testing"
 
+	"github.com/casualjim/bubo/provider"
 	"github.com/casualjim/bubo/types"
-	openai "github.com/openai/openai-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type testModel struct{}
+
+func (m *testModel) Name() string {
+	return "test-model"
+}
+
+func (m *testModel) Provider() provider.Provider {
+	return nil
+}
 
 func TestDefaultAgent(t *testing.T) {
 	t.Run("basic properties", func(t *testing.T) {
 		agent := &DefaultAgent{
 			name:         "test-agent",
-			model:        "gpt-4",
+			model:        &testModel{},
 			instructions: "test instructions",
 			toolChoice:   "auto",
 		}
 
 		assert.Equal(t, "test-agent", agent.Name())
-		assert.Equal(t, "gpt-4", agent.Model())
+		assert.Equal(t, &testModel{}, agent.Model())
 		assert.Equal(t, "test instructions", agent.Instructions())
 		assert.Equal(t, "auto", agent.ToolChoice())
 		assert.False(t, agent.ParallelToolCalls())
@@ -29,10 +38,10 @@ func TestDefaultAgent(t *testing.T) {
 }
 
 func TestNewAgent(t *testing.T) {
-	agent := NewAgent("test", "gpt-4", "instructions")
+	agent := NewAgent("test", &testModel{}, "instructions")
 
 	assert.Equal(t, "test", agent.Name())
-	assert.Equal(t, "gpt-4", agent.Model())
+	assert.Equal(t, &testModel{}, agent.Model())
 	assert.Equal(t, "instructions", agent.Instructions())
 	assert.Empty(t, agent.ToolChoice())
 	assert.True(t, agent.ParallelToolCalls())
@@ -40,7 +49,7 @@ func TestNewAgent(t *testing.T) {
 }
 
 func TestDefaultAgentToolManagement(t *testing.T) {
-	agent := NewAgent("test", "gpt-4", "instructions")
+	agent := NewAgent("test", &testModel{}, "instructions")
 
 	testFunc := func() {}
 	def1, err := AgentTool(testFunc, WithToolName("func1"))
@@ -59,7 +68,7 @@ func TestDefaultAgentToolManagement(t *testing.T) {
 	})
 
 	t.Run("WithTool", func(t *testing.T) {
-		agent := NewAgent("test", "gpt-4", "instructions")
+		agent := NewAgent("test", &testModel{}, "instructions")
 
 		result := agent.WithTool(def1)
 		assert.Same(t, agent, result)
@@ -71,7 +80,7 @@ func TestDefaultAgentToolManagement(t *testing.T) {
 }
 
 func TestDefaultAgentToolChoice(t *testing.T) {
-	agent := NewAgent("test", "gpt-4", "instructions")
+	agent := NewAgent("test", &testModel{}, "instructions")
 
 	t.Run("SetToolChoice", func(t *testing.T) {
 		agent.SetToolChoice("none")
@@ -86,7 +95,7 @@ func TestDefaultAgentToolChoice(t *testing.T) {
 }
 
 func TestDefaultAgentParallelToolCalls(t *testing.T) {
-	agent := NewAgent("test", "gpt-4", "instructions")
+	agent := NewAgent("test", &testModel{}, "instructions")
 
 	t.Run("EnableParallelToolCalls", func(t *testing.T) {
 		agent.DisableParallelToolCalls() // Start from disabled
@@ -117,48 +126,48 @@ func TestDefaultAgentParallelToolCalls(t *testing.T) {
 
 func TestRenderInstructions(t *testing.T) {
 	t.Run("no template variables", func(t *testing.T) {
-		agent := NewAgent("test", "gpt-4", "simple instructions")
+		agent := NewAgent("test", &testModel{}, "simple instructions")
 		result, err := agent.RenderInstructions(types.ContextVars{})
 		require.NoError(t, err)
 		assert.Equal(t, "simple instructions", result)
 	})
 
 	t.Run("with template variables", func(t *testing.T) {
-		agent := NewAgent("test", "gpt-4", "Hello {{.Name}}")
+		agent := NewAgent("test", &testModel{}, "Hello {{.Name}}")
 		result, err := agent.RenderInstructions(types.ContextVars{"Name": "World"})
 		require.NoError(t, err)
 		assert.Equal(t, "Hello World", result)
 	})
 
 	t.Run("with invalid template", func(t *testing.T) {
-		agent := NewAgent("test", "gpt-4", "Hello {{.Name")
+		agent := NewAgent("test", &testModel{}, "Hello {{.Name")
 		_, err := agent.RenderInstructions(types.ContextVars{"Name": "World"})
 		require.Error(t, err)
 	})
 
 	t.Run("with missing variable", func(t *testing.T) {
-		agent := NewAgent("test", "gpt-4", "Hello {{.Name}}")
+		agent := NewAgent("test", &testModel{}, "Hello {{.Name}}")
 		_, err := agent.RenderInstructions(types.ContextVars{})
 		require.Error(t, err)
 	})
 }
 
-func TestNewAgentWithEmptyModel(t *testing.T) {
-	t.Run("uses env var when set", func(t *testing.T) {
-		oldModel := os.Getenv("OPENAI_DEFAULT_MODEL")
-		defer os.Setenv("OPENAI_DEFAULT_MODEL", oldModel)
+// func TestNewAgentWithEmptyModel(t *testing.T) {
+// 	t.Run("uses env var when set", func(t *testing.T) {
+// 		oldModel := os.Getenv("OPENAI_DEFAULT_MODEL")
+// 		defer os.Setenv("OPENAI_DEFAULT_MODEL", oldModel)
 
-		os.Setenv("OPENAI_DEFAULT_MODEL", "test-model")
-		agent := NewAgent("test", "", "instructions")
-		assert.Equal(t, "test-model", agent.Model())
-	})
+// 		os.Setenv("OPENAI_DEFAULT_MODEL", "test-model")
+// 		agent := NewAgent("test", "", "instructions")
+// 		assert.Equal(t, "test-model", agent.Model())
+// 	})
 
-	t.Run("uses default when env var not set", func(t *testing.T) {
-		oldModel := os.Getenv("OPENAI_DEFAULT_MODEL")
-		defer os.Setenv("OPENAI_DEFAULT_MODEL", oldModel)
+// 	t.Run("uses default when env var not set", func(t *testing.T) {
+// 		oldModel := os.Getenv("OPENAI_DEFAULT_MODEL")
+// 		defer os.Setenv("OPENAI_DEFAULT_MODEL", oldModel)
 
-		os.Unsetenv("OPENAI_DEFAULT_MODEL")
-		agent := NewAgent("test", "", "instructions")
-		assert.Equal(t, openai.ChatModelGPT4oMini, agent.Model())
-	})
-}
+// 		os.Unsetenv("OPENAI_DEFAULT_MODEL")
+// 		agent := NewAgent("test", "", "instructions")
+// 		assert.Equal(t, openailib.ChatModelGPT4oMini, agent.Model())
+// 	})
+// }

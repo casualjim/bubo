@@ -8,24 +8,6 @@ import (
 	orderedmap "github.com/wk8/go-ordered-map/v2"
 )
 
-func TestKnownModels(t *testing.T) {
-	tests := []struct {
-		model    KnownModel
-		expected string
-	}{
-		{GPT4o, "chatgpt-4o-latest"},
-		{GPT4oMini, "gpt-4o-mini"},
-		{O1, "o1"},
-		{O1Mini, "o1-mini"},
-	}
-
-	for _, tt := range tests {
-		t.Run(string(tt.model), func(t *testing.T) {
-			assert.Equal(t, tt.expected, string(tt.model))
-		})
-	}
-}
-
 func TestToolDefinition_ToNameAndSchema(t *testing.T) {
 	om := orderedmap.New[string, *jsonschema.Schema]()
 	om.Set("value1", &jsonschema.Schema{

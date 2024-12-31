@@ -28,3 +28,5 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           default_bump: patch
           create_annotated_tag: true
+          release_branches: main
+          tag_prefix: v

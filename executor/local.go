@@ -258,28 +258,63 @@ func (l *Local[T]) handleToolCalls(ctx context.Context, params toolCallParams) (
 		agentTools[tool.Name] = tool
 	}
 
+	// Initialize context variables
 	var contextVars types.ContextVars
 	if params.contextVars != nil {
 		contextVars = maps.Clone(params.contextVars)
 	}
-	var nextAgent bubo.Agent
 
-	// TODO: partition the tool calls into calls that will return an agent and those that will not.
-	// When we have a tool that returns an agent we need to executed those first and return the first successful one.
-	for toolCall := range slices.Values(params.toolCalls.ToolCalls) {
-		tool, foundTool := agentTools[toolCall.Name]
-		if !foundTool {
+	// Partition tool calls into agent transfers and regular tools while preserving order
+	var agentCalls, regularCalls []struct {
+		index int
+		call  messages.ToolCallData
+	}
+	for i, call := range params.toolCalls.ToolCalls {
+		tool, exists := agentTools[call.Name]
+		if !exists {
 			return nil, pubsub.Error{
 				RunID:     params.runID,
 				TurnID:    params.mem.ID(),
 				Sender:    params.agent.Name(),
-				Err:       fmt.Errorf("unknown tool %s", toolCall.Name),
+				Err:       fmt.Errorf("unknown tool %s", call.Name),
 				Timestamp: strfmt.DateTime(time.Now()),
 			}
 		}
 
-		args := buildArgList(toolCall.Arguments, tool.Parameters)
+		// Check if tool returns an Agent by examining its return type
+		if reflect.TypeOf(tool.Function).Out(0) == reflect.TypeOf((*bubo.Agent)(nil)).Elem() {
+			agentCalls = append(agentCalls, struct {
+				index int
+				call  messages.ToolCallData
+			}{i, call})
+		} else {
+			regularCalls = append(regularCalls, struct {
+				index int
+				call  messages.ToolCallData
+			}{i, call})
+		}
+	}
 
+	// Sort by original index to maintain received order within each partition
+	slices.SortFunc(agentCalls, func(a, b struct {
+		index int
+		call  messages.ToolCallData
+	},
+	) int {
+		return a.index - b.index
+	})
+	slices.SortFunc(regularCalls, func(a, b struct {
+		index int
+		call  messages.ToolCallData
+	},
+	) int {
+		return a.index - b.index
+	})
+
+	// Handle agent transfers first - return on first successful transfer
+	for _, item := range agentCalls {
+		tool := agentTools[item.call.Name]
+		args := buildArgList(item.call.Arguments, tool.Parameters)
 		result, err := callFunction(tool.Function, args, contextVars)
 		if err != nil {
 			return nil, pubsub.Error{
@@ -291,12 +326,13 @@ func (l *Local[T]) handleToolCalls(ctx context.Context, params toolCallParams) (
 			}
 		}
 
+		// Update memory and context variables
 		params.mem.AddToolResponse(messages.Message[messages.ToolResponse]{
 			RunID:  params.runID,
 			TurnID: params.mem.ID(),
 			Payload: messages.ToolResponse{
 				ToolName:   tool.Name,
-				ToolCallID: toolCall.ID,
+				ToolCallID: item.call.ID,
 				Content:    result.Value,
 			},
 			Sender:    params.agent.Name(),
@@ -305,47 +341,97 @@ func (l *Local[T]) handleToolCalls(ctx context.Context, params toolCallParams) (
 		})
 
 		if result.ContextVariables != nil {
+			if contextVars == nil {
+				contextVars = make(types.ContextVars, len(result.ContextVariables))
+			}
+			maps.Copy(contextVars, result.ContextVariables)
+			// Update parent context variables
 			if params.contextVars == nil {
 				params.contextVars = make(types.ContextVars, len(result.ContextVariables))
 			}
 			maps.Copy(params.contextVars, result.ContextVariables)
 		}
-		if result.Agent != nil {
-			perr := params.topic.Publish(ctx, pubsub.Response[messages.ToolResponse]{
-				RunID:  params.runID,
-				TurnID: params.mem.ID(),
-				Response: messages.ToolResponse{
-					ToolName:   tool.Name,
-					ToolCallID: toolCall.ID,
-					Content:    fmt.Sprintf("transfer to agent %s", result.Agent.Name()),
-				},
-				Sender:    params.agent.Name(),
-				Timestamp: strfmt.DateTime(time.Now()),
-			})
-			if perr != nil {
-				return nil, perr
-			}
 
-			nextAgent = result.Agent
-		} else {
-			perr := params.topic.Publish(ctx, pubsub.Response[messages.ToolResponse]{
-				RunID:  params.runID,
-				TurnID: params.mem.ID(),
-				Response: messages.ToolResponse{
-					ToolName:   tool.Name,
-					ToolCallID: toolCall.ID,
-					Content:    result.Value,
-				},
-				Sender:    params.agent.Name(),
-				Timestamp: strfmt.DateTime(time.Now()),
-			})
-			if perr != nil {
-				return nil, perr
-			}
+		// Publish tool response
+		perr := params.topic.Publish(ctx, pubsub.Response[messages.ToolResponse]{
+			RunID:  params.runID,
+			TurnID: params.mem.ID(),
+			Response: messages.ToolResponse{
+				ToolName:   tool.Name,
+				ToolCallID: item.call.ID,
+				Content:    fmt.Sprintf("transfer to agent %s", result.Agent.Name()),
+			},
+			Sender:    params.agent.Name(),
+			Timestamp: strfmt.DateTime(time.Now()),
+		})
+		if perr != nil {
+			return nil, perr
+		}
+
+		if result.Agent != nil {
+			return result.Agent, nil // Return first successful agent transfer
 		}
 	}
 
-	return nextAgent, nil
+	// Handle regular tool calls
+	for _, item := range regularCalls {
+		tool := agentTools[item.call.Name]
+		args := buildArgList(item.call.Arguments, tool.Parameters)
+		result, err := callFunction(tool.Function, args, contextVars)
+		if err != nil {
+			return nil, pubsub.Error{
+				RunID:     params.runID,
+				TurnID:    params.mem.ID(),
+				Sender:    params.agent.Name(),
+				Err:       err,
+				Timestamp: strfmt.DateTime(time.Now()),
+			}
+		}
+
+		// Update memory and context variables
+		params.mem.AddToolResponse(messages.Message[messages.ToolResponse]{
+			RunID:  params.runID,
+			TurnID: params.mem.ID(),
+			Payload: messages.ToolResponse{
+				ToolName:   tool.Name,
+				ToolCallID: item.call.ID,
+				Content:    result.Value,
+			},
+			Sender:    params.agent.Name(),
+			Timestamp: strfmt.DateTime(time.Now()),
+			Meta:      gjson.Result{},
+		})
+
+		if result.ContextVariables != nil {
+			if contextVars == nil {
+				contextVars = make(types.ContextVars, len(result.ContextVariables))
+			}
+			maps.Copy(contextVars, result.ContextVariables)
+			// Update parent context variables
+			if params.contextVars == nil {
+				params.contextVars = make(types.ContextVars, len(result.ContextVariables))
+			}
+			maps.Copy(params.contextVars, result.ContextVariables)
+		}
+
+		// Publish tool response
+		perr := params.topic.Publish(ctx, pubsub.Response[messages.ToolResponse]{
+			RunID:  params.runID,
+			TurnID: params.mem.ID(),
+			Response: messages.ToolResponse{
+				ToolName:   tool.Name,
+				ToolCallID: item.call.ID,
+				Content:    result.Value,
+			},
+			Sender:    params.agent.Name(),
+			Timestamp: strfmt.DateTime(time.Now()),
+		})
+		if perr != nil {
+			return nil, perr
+		}
+	}
+
+	return nil, nil
 }
 
 func buildArgList(arguments string, parameters map[string]string) []reflect.Value {
@@ -420,6 +506,8 @@ func callFunction(fn any, args []reflect.Value, contextVars types.ContextVars) (
 		return result{Value: fmt.Sprintf(`{"assistant":%q}`, vtpe.Name()), Agent: vtpe}, nil
 	case error:
 		return result{}, vtpe
+	case types.ContextVars:
+		return result{Value: "", ContextVariables: vtpe}, nil
 	case string:
 		return result{Value: vtpe}, nil
 	case time.Time:

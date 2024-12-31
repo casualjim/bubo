@@ -324,31 +324,287 @@ func TestCallFunctionExtended(t *testing.T) {
 }
 
 func TestHandleToolCalls(t *testing.T) {
-	broker := newMockBroker()
-	l := NewLocal[any](broker)
+	t.Run("basic tool call", func(t *testing.T) {
+		broker := newMockBroker()
+		l := NewLocal[any](broker)
+		agent := newTestAgent()
 
-	agent := newTestAgent()
-
-	runID := uuidx.New()
-	params := toolCallParams{
-		runID:       runID,
-		agent:       agent,
-		contextVars: types.ContextVars{},
-		mem:         runstate.NewAggregator(),
-		toolCalls: messages.ToolCallMessage{
-			ToolCalls: []messages.ToolCallData{
-				{
-					Name:      "test_tool",
-					Arguments: "{}",
+		runID := uuidx.New()
+		params := toolCallParams{
+			runID:       runID,
+			agent:       agent,
+			contextVars: types.ContextVars{},
+			mem:         runstate.NewAggregator(),
+			toolCalls: messages.ToolCallMessage{
+				ToolCalls: []messages.ToolCallData{
+					{
+						Name:      "test_tool",
+						Arguments: "{}",
+					},
 				},
 			},
-		},
-		topic: broker.Topic(context.Background(), runID.String()),
-	}
+			topic: broker.Topic(context.Background(), runID.String()),
+		}
 
-	nextAgent, err := l.handleToolCalls(context.Background(), params)
-	require.NoError(t, err)
-	assert.Nil(t, nextAgent)
+		nextAgent, err := l.handleToolCalls(context.Background(), params)
+		require.NoError(t, err)
+		assert.Nil(t, nextAgent)
+	})
+
+	t.Run("agent transfer before regular tools", func(t *testing.T) {
+		broker := newMockBroker()
+		l := NewLocal[any](broker)
+
+		nextTestAgent := newTestAgent()
+		nextTestAgent.testName = "next_agent"
+
+		executionOrder := []string{}
+		agent := &testAgent{
+			testName:  "test_agent",
+			testModel: testModel{provider: &mockProvider{}},
+			testTools: []bubo.AgentToolDefinition{
+				{
+					Name: "regular_tool",
+					Function: func() string {
+						executionOrder = append(executionOrder, "regular_tool")
+						return "regular result"
+					},
+				},
+				{
+					Name: "agent_tool",
+					Function: func() bubo.Agent {
+						executionOrder = append(executionOrder, "agent_tool")
+						return nextTestAgent
+					},
+				},
+			},
+		}
+
+		runID := uuidx.New()
+		params := toolCallParams{
+			runID: runID,
+			agent: agent,
+			mem:   runstate.NewAggregator(),
+			toolCalls: messages.ToolCallMessage{
+				ToolCalls: []messages.ToolCallData{
+					{
+						Name:      "regular_tool",
+						Arguments: "{}",
+					},
+					{
+						Name:      "agent_tool",
+						Arguments: "{}",
+					},
+				},
+			},
+			topic: broker.Topic(context.Background(), runID.String()),
+		}
+
+		nextAgent, err := l.handleToolCalls(context.Background(), params)
+		require.NoError(t, err)
+		assert.Equal(t, nextTestAgent, nextAgent)
+		assert.Equal(t, []string{"agent_tool"}, executionOrder, "agent tool should execute first and prevent regular tool execution")
+	})
+
+	t.Run("context variable propagation", func(t *testing.T) {
+		broker := newMockBroker()
+		l := NewLocal[any](broker)
+
+		var toolContextVars types.ContextVars
+		agent := &testAgent{
+			testName:  "test_agent",
+			testModel: testModel{provider: &mockProvider{}},
+			testTools: []bubo.AgentToolDefinition{
+				{
+					Name: "first_tool",
+					Function: func(cv types.ContextVars) types.ContextVars {
+						if cv == nil {
+							cv = types.ContextVars{}
+						}
+						cv["key"] = "value1"
+						return cv
+					},
+					Parameters: map[string]string{
+						"param0": "cv",
+					},
+				},
+				{
+					Name: "second_tool",
+					Function: func(cv types.ContextVars) string {
+						toolContextVars = cv
+						if cv == nil {
+							return "no value"
+						}
+						val, ok := cv["key"]
+						if !ok {
+							return "no value"
+						}
+						return val.(string)
+					},
+					Parameters: map[string]string{
+						"param0": "cv",
+					},
+				},
+			},
+		}
+
+		runID := uuidx.New()
+		params := toolCallParams{
+			runID: runID,
+			agent: agent,
+			mem:   runstate.NewAggregator(),
+			toolCalls: messages.ToolCallMessage{
+				ToolCalls: []messages.ToolCallData{
+					{
+						Name:      "first_tool",
+						Arguments: `{"cv": {}}`,
+					},
+					{
+						Name:      "second_tool",
+						Arguments: `{"cv": {}}`,
+					},
+				},
+			},
+			topic: broker.Topic(context.Background(), runID.String()),
+		}
+
+		nextAgent, err := l.handleToolCalls(context.Background(), params)
+		require.NoError(t, err)
+		assert.Nil(t, nextAgent)
+		assert.Equal(t, "value1", toolContextVars["key"], "context variables should propagate between tool calls")
+	})
+
+	t.Run("memory state preservation", func(t *testing.T) {
+		broker := newMockBroker()
+		l := NewLocal[any](broker)
+
+		agent := &testAgent{
+			testName:  "test_agent",
+			testModel: testModel{provider: &mockProvider{}},
+			testTools: []bubo.AgentToolDefinition{
+				{
+					Name: "tool1",
+					Function: func() string {
+						return "result1"
+					},
+				},
+				{
+					Name: "tool2",
+					Function: func() string {
+						return "result2"
+					},
+				},
+			},
+		}
+
+		runID := uuidx.New()
+		mem := runstate.NewAggregator()
+		params := toolCallParams{
+			runID: runID,
+			agent: agent,
+			mem:   mem,
+			toolCalls: messages.ToolCallMessage{
+				ToolCalls: []messages.ToolCallData{
+					{
+						Name:      "tool1",
+						Arguments: "{}",
+						ID:        "1",
+					},
+					{
+						Name:      "tool2",
+						Arguments: "{}",
+						ID:        "2",
+					},
+				},
+			},
+			topic: broker.Topic(context.Background(), runID.String()),
+		}
+
+		nextAgent, err := l.handleToolCalls(context.Background(), params)
+		require.NoError(t, err)
+		assert.Nil(t, nextAgent)
+
+		// Wait for first tool response
+		event1, err := broker.waitForEvent(runID.String(), time.Second, func(e pubsub.Event) bool {
+			if resp, ok := e.(pubsub.Response[messages.ToolResponse]); ok {
+				return resp.Response.ToolName == "tool1"
+			}
+			return false
+		})
+		require.NoError(t, err)
+		require.NotNil(t, event1)
+		resp1 := event1.(pubsub.Response[messages.ToolResponse])
+		assert.Equal(t, "result1", resp1.Response.Content)
+
+		// Wait for second tool response
+		event2, err := broker.waitForEvent(runID.String(), time.Second, func(e pubsub.Event) bool {
+			if resp, ok := e.(pubsub.Response[messages.ToolResponse]); ok {
+				return resp.Response.ToolName == "tool2"
+			}
+			return false
+		})
+		require.NoError(t, err)
+		require.NotNil(t, event2)
+		resp2 := event2.(pubsub.Response[messages.ToolResponse])
+		assert.Equal(t, "result2", resp2.Response.Content)
+	})
+
+	t.Run("multiple agent transfers", func(t *testing.T) {
+		broker := newMockBroker()
+		l := NewLocal[any](broker)
+
+		nextTestAgent1 := newTestAgent()
+		nextTestAgent1.testName = "next_agent1"
+		nextTestAgent2 := newTestAgent()
+		nextTestAgent2.testName = "next_agent2"
+
+		executionOrder := []string{}
+		agent := &testAgent{
+			testName:  "test_agent",
+			testModel: testModel{provider: &mockProvider{}},
+			testTools: []bubo.AgentToolDefinition{
+				{
+					Name: "agent_tool1",
+					Function: func() bubo.Agent {
+						executionOrder = append(executionOrder, "agent_tool1")
+						return nextTestAgent1
+					},
+				},
+				{
+					Name: "agent_tool2",
+					Function: func() bubo.Agent {
+						executionOrder = append(executionOrder, "agent_tool2")
+						return nextTestAgent2
+					},
+				},
+			},
+		}
+
+		runID := uuidx.New()
+		params := toolCallParams{
+			runID: runID,
+			agent: agent,
+			mem:   runstate.NewAggregator(),
+			toolCalls: messages.ToolCallMessage{
+				ToolCalls: []messages.ToolCallData{
+					{
+						Name:      "agent_tool1",
+						Arguments: "{}",
+					},
+					{
+						Name:      "agent_tool2",
+						Arguments: "{}",
+					},
+				},
+			},
+			topic: broker.Topic(context.Background(), runID.String()),
+		}
+
+		nextAgent, err := l.handleToolCalls(context.Background(), params)
+		require.NoError(t, err)
+		assert.Equal(t, nextTestAgent1, nextAgent, "should return first successful agent transfer")
+		assert.Equal(t, []string{"agent_tool1"}, executionOrder, "should only execute first agent transfer")
+	})
 }
 
 type mockSubscription struct {
@@ -1021,6 +1277,231 @@ func (t textMarshaler) MarshalText() ([]byte, error) {
 		return nil, fmt.Errorf("marshal error")
 	}
 	return []byte("marshaled text"), nil
+}
+
+func TestHandleToolCallsWithMixedTools(t *testing.T) {
+	broker := newMockBroker()
+	l := NewLocal[any](broker)
+
+	var executionOrder []string
+	var contextValue string
+
+	agent := &testAgent{
+		testName:  "test_agent",
+		testModel: testModel{provider: &mockProvider{}},
+		testTools: []bubo.AgentToolDefinition{
+			{
+				Name: "b_agent_tool", // Deliberately named to test order preservation
+				Function: func() bubo.Agent {
+					executionOrder = append(executionOrder, "b_agent_tool")
+					return newTestAgent()
+				},
+			},
+			{
+				Name: "a_agent_tool", // Deliberately named to test order preservation
+				Function: func() bubo.Agent {
+					executionOrder = append(executionOrder, "a_agent_tool")
+					return newTestAgent()
+				},
+			},
+			{
+				Name: "b_regular_tool", // Deliberately named to test order preservation
+				Function: func() types.ContextVars {
+					executionOrder = append(executionOrder, "b_regular_tool")
+					cv := types.ContextVars{}
+					cv["key"] = "test_value"
+					return cv
+				},
+			},
+			{
+				Name: "a_regular_tool", // Deliberately named to test order preservation
+				Function: func(cv types.ContextVars) string {
+					executionOrder = append(executionOrder, "a_regular_tool")
+					contextValue = cv["key"].(string)
+					return cv["key"].(string)
+				},
+				Parameters: map[string]string{
+					"param0": "cv",
+				},
+			},
+		},
+	}
+
+	t.Run("preserves order within agent transfers partition", func(t *testing.T) {
+		executionOrder = []string{}
+		contextValue = ""
+
+		runID := uuidx.New()
+		params := toolCallParams{
+			runID: runID,
+			agent: agent,
+			mem:   runstate.NewAggregator(),
+			toolCalls: messages.ToolCallMessage{
+				ToolCalls: []messages.ToolCallData{
+					{
+						Name:      "b_agent_tool",
+						Arguments: "{}",
+					},
+					{
+						Name:      "a_agent_tool",
+						Arguments: "{}",
+					},
+				},
+			},
+			topic: broker.Topic(context.Background(), runID.String()),
+		}
+
+		nextAgent, err := l.handleToolCalls(context.Background(), params)
+		require.NoError(t, err)
+		assert.NotNil(t, nextAgent)
+		assert.Equal(t, []string{"b_agent_tool"}, executionOrder,
+			"should execute first agent tool in received order regardless of name")
+	})
+
+	t.Run("preserves order within regular tools partition", func(t *testing.T) {
+		executionOrder = []string{}
+		contextValue = ""
+
+		runID := uuidx.New()
+		params := toolCallParams{
+			runID: runID,
+			agent: agent,
+			mem:   runstate.NewAggregator(),
+			toolCalls: messages.ToolCallMessage{
+				ToolCalls: []messages.ToolCallData{
+					{
+						Name:      "b_regular_tool",
+						Arguments: "{}",
+					},
+					{
+						Name:      "a_regular_tool",
+						Arguments: `{"cv": {}}`,
+					},
+				},
+			},
+			topic: broker.Topic(context.Background(), runID.String()),
+		}
+
+		nextAgent, err := l.handleToolCalls(context.Background(), params)
+		require.NoError(t, err)
+		assert.Nil(t, nextAgent)
+		assert.Equal(t, []string{"b_regular_tool", "a_regular_tool"}, executionOrder,
+			"should execute regular tools in received order regardless of name")
+		assert.Equal(t, "test_value", contextValue)
+	})
+
+	t.Run("agent transfers partition executes before regular tools partition", func(t *testing.T) {
+		executionOrder = []string{}
+		contextValue = ""
+
+		runID := uuidx.New()
+		params := toolCallParams{
+			runID: runID,
+			agent: agent,
+			mem:   runstate.NewAggregator(),
+			toolCalls: messages.ToolCallMessage{
+				ToolCalls: []messages.ToolCallData{
+					{
+						Name:      "b_regular_tool",
+						Arguments: "{}",
+					},
+					{
+						Name:      "b_agent_tool",
+						Arguments: "{}",
+					},
+					{
+						Name:      "a_regular_tool",
+						Arguments: `{"cv": {}}`,
+					},
+					{
+						Name:      "a_agent_tool",
+						Arguments: "{}",
+					},
+				},
+			},
+			topic: broker.Topic(context.Background(), runID.String()),
+		}
+
+		nextAgent, err := l.handleToolCalls(context.Background(), params)
+		require.NoError(t, err)
+		assert.NotNil(t, nextAgent)
+		assert.Equal(t, []string{"b_agent_tool"}, executionOrder,
+			"should execute first agent tool in received order and stop")
+		assert.Empty(t, contextValue)
+	})
+}
+
+func TestHandleToolCallsContextPropagation(t *testing.T) {
+	broker := newMockBroker()
+	l := NewLocal[any](broker)
+
+	var toolValues []string
+	agent := &testAgent{
+		testName:  "test_agent",
+		testModel: testModel{provider: &mockProvider{}},
+		testTools: []bubo.AgentToolDefinition{
+			{
+				Name: "tool1",
+				Function: func() types.ContextVars {
+					cv := types.ContextVars{}
+					cv["key1"] = "value1"
+					cv["key2"] = "value2"
+					return cv
+				},
+			},
+			{
+				Name: "tool2",
+				Function: func(cv types.ContextVars) string {
+					toolValues = append(toolValues, cv["key1"].(string))
+					cv["key1"] = "updated"
+					return "ok"
+				},
+				Parameters: map[string]string{
+					"param0": "cv",
+				},
+			},
+			{
+				Name: "tool3",
+				Function: func(cv types.ContextVars) string {
+					toolValues = append(toolValues, cv["key1"].(string))
+					toolValues = append(toolValues, cv["key2"].(string))
+					return "ok"
+				},
+				Parameters: map[string]string{
+					"param0": "cv",
+				},
+			},
+		},
+	}
+
+	runID := uuidx.New()
+	params := toolCallParams{
+		runID: runID,
+		agent: agent,
+		mem:   runstate.NewAggregator(),
+		toolCalls: messages.ToolCallMessage{
+			ToolCalls: []messages.ToolCallData{
+				{
+					Name:      "tool1",
+					Arguments: "{}",
+				},
+				{
+					Name:      "tool2",
+					Arguments: `{"cv": {}}`,
+				},
+				{
+					Name:      "tool3",
+					Arguments: `{"cv": {}}`,
+				},
+			},
+		},
+		topic: broker.Topic(context.Background(), runID.String()),
+	}
+
+	nextAgent, err := l.handleToolCalls(context.Background(), params)
+	require.NoError(t, err)
+	assert.Nil(t, nextAgent)
+	assert.Equal(t, []string{"value1", "updated", "value2"}, toolValues, "context variables should propagate and update correctly")
 }
 
 func TestCallFunctionWithComplexTypes(t *testing.T) {

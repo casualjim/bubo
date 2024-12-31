@@ -6,9 +6,18 @@ before:
   hooks:
     - go mod tidy
 
-# Since this is a library, we don't build any binaries
 builds:
-  - skip: true
+  - main: ./cmd/bubo-tool-gen/main.go
+    binary: bubo-tool-gen
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    env:
+      - CGO_ENABLED=0
 
 # Git configuration
 changelog:

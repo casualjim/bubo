@@ -21,7 +21,10 @@ import (
 	"github.com/rs/zerolog"
 )
 
-var log zerolog.Logger
+var (
+	log    zerolog.Logger
+	osExit = os.Exit
+)
 
 func init() {
 	output := zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.Stamp}
@@ -112,7 +115,7 @@ func main() {
 	fileInfo, err := os.Stat(*targetPath)
 	if err != nil {
 		slog.Error("Error accessing path", slog.String("path", *targetPath), slogx.Error(err))
-		os.Exit(1)
+		osExit(1)
 	}
 
 	if fileInfo.IsDir() {
@@ -132,16 +135,17 @@ func main() {
 		})
 		if err != nil {
 			slog.Error("Error walking the path", slog.String("dir", *targetPath), slogx.Error(err))
+			osExit(1)
 		}
 	} else {
 		// Process single file
 		if !strings.HasSuffix(*targetPath, ".go") || strings.HasSuffix(*targetPath, "_test.go") {
 			slog.Error("Not a Go source file", slog.String("path", *targetPath))
-			os.Exit(1)
+			osExit(1)
 		}
 
 		if err := processGoFile(*targetPath, *exportTools); err != nil {
-			os.Exit(1)
+			osExit(1)
 		}
 	}
 }

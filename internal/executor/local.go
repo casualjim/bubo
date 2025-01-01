@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/casualjim/bubo"
+	"github.com/casualjim/bubo/api"
 	"github.com/casualjim/bubo/events"
 	pubsub "github.com/casualjim/bubo/internal/broker"
 	"github.com/casualjim/bubo/internal/shorttermmemory"
@@ -20,6 +20,7 @@ import (
 	"github.com/casualjim/bubo/pkg/reflectx"
 	"github.com/casualjim/bubo/pkg/slogx"
 	"github.com/casualjim/bubo/provider"
+	"github.com/casualjim/bubo/tool"
 	"github.com/casualjim/bubo/types"
 	"github.com/go-openapi/strfmt"
 	"github.com/goccy/go-json"
@@ -94,20 +95,6 @@ func (l *Local[T]) Run(ctx context.Context, command RunCommand[T]) error {
 				return
 			}
 
-			var toolDefs []provider.ToolDefinition
-			agentTools := activeAgent.Tools()
-			if len(agentTools) > 0 {
-				toolDefs = make([]provider.ToolDefinition, len(agentTools))
-				for i, tool := range agentTools {
-					toolDefs[i] = provider.ToolDefinition{
-						Name:        tool.Name,
-						Description: tool.Description,
-						Parameters:  tool.Parameters,
-						Function:    tool.Function,
-					}
-				}
-			}
-
 			stream, err := prov.ChatCompletion(ctx, provider.CompletionParams{
 				RunID:          command.ID,
 				Instructions:   instructions,
@@ -115,7 +102,7 @@ func (l *Local[T]) Run(ctx context.Context, command RunCommand[T]) error {
 				Stream:         command.Stream,
 				Model:          model,
 				ResponseSchema: command.ResponseSchema,
-				Tools:          toolDefs,
+				Tools:          activeAgent.Tools(),
 			})
 			if err != nil {
 				ee, _ := wrapErr(command.ID, thread.ID(), activeAgent.Name(), err)
@@ -264,15 +251,15 @@ func wrapErr(runID, turnID uuid.UUID, sender string, err error) (events.Error, b
 
 type toolCallParams[T any] struct {
 	runID       uuid.UUID
-	agent       bubo.Owl
+	agent       api.Owl
 	contextVars types.ContextVars
 	mem         *shorttermmemory.Aggregator
 	toolCalls   messages.ToolCallMessage
 	topic       pubsub.Topic[T]
 }
 
-func (l *Local[T]) handleToolCalls(ctx context.Context, params toolCallParams[T]) (bubo.Owl, error) {
-	agentTools := make(map[string]bubo.AgentToolDefinition, len(params.agent.Tools()))
+func (l *Local[T]) handleToolCalls(ctx context.Context, params toolCallParams[T]) (api.Owl, error) {
+	agentTools := make(map[string]tool.Definition, len(params.agent.Tools()))
 	for tool := range slices.Values(params.agent.Tools()) {
 		agentTools[tool.Name] = tool
 	}
@@ -301,7 +288,7 @@ func (l *Local[T]) handleToolCalls(ctx context.Context, params toolCallParams[T]
 		}
 
 		// Check if tool returns an Agent by examining its return type
-		if reflect.TypeOf(tool.Function).Out(0) == reflect.TypeOf((*bubo.Owl)(nil)).Elem() {
+		if reflect.TypeOf(tool.Function).Out(0) == reflect.TypeOf((*api.Owl)(nil)).Elem() {
 			agentCalls = append(agentCalls, struct {
 				index int
 				call  messages.ToolCallData
@@ -487,7 +474,7 @@ func buildArgList(arguments string, parameters map[string]string) []reflect.Valu
 
 type result struct {
 	Value            string
-	Agent            bubo.Owl
+	Agent            api.Owl
 	ContextVariables types.ContextVars
 }
 
@@ -521,7 +508,7 @@ func callFunction(fn any, args []reflect.Value, contextVars types.ContextVars) (
 	}
 
 	switch vtpe := res.Interface().(type) {
-	case bubo.Owl:
+	case api.Owl:
 		return result{Value: fmt.Sprintf(`{"assistant":%q}`, vtpe.Name()), Agent: vtpe}, nil
 	case error:
 		return result{}, vtpe

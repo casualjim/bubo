@@ -1,4 +1,4 @@
-package bubo
+package api
 
 import "github.com/casualjim/bubo/provider"
 

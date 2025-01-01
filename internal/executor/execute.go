@@ -6,7 +6,7 @@ import (
 	"math"
 	"reflect"
 
-	"github.com/casualjim/bubo"
+	"github.com/casualjim/bubo/api"
 	"github.com/casualjim/bubo/events"
 	"github.com/casualjim/bubo/internal/shorttermmemory"
 	"github.com/casualjim/bubo/pkg/uuidx"
@@ -30,7 +30,7 @@ func toJSONSchema[T any]() *jsonschema.Schema {
 	return schema
 }
 
-func NewRunCommand[T any](agent bubo.Owl, thread *shorttermmemory.Aggregator, hook events.Hook[T]) (RunCommand[T], error) {
+func NewRunCommand[T any](agent api.Owl, thread *shorttermmemory.Aggregator, hook events.Hook[T]) (RunCommand[T], error) {
 	var err error
 	if agent == nil {
 		err = errors.Join(err, errors.New("agent is required"))
@@ -91,7 +91,7 @@ func NewRunCommand[T any](agent bubo.Owl, thread *shorttermmemory.Aggregator, ho
 
 type RunCommand[T any] struct {
 	ID                uuid.UUID
-	Agent             bubo.Owl
+	Agent             api.Owl
 	Thread            *shorttermmemory.Aggregator
 	ResponseSchema    *jsonschema.Schema
 	UnmarshalResponse func([]byte) (T, error)

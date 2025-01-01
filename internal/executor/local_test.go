@@ -10,13 +10,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/casualjim/bubo"
+	"github.com/casualjim/bubo/api"
 	"github.com/casualjim/bubo/events"
 	pubsub "github.com/casualjim/bubo/internal/broker"
 	"github.com/casualjim/bubo/internal/shorttermmemory"
 	"github.com/casualjim/bubo/messages"
 	"github.com/casualjim/bubo/pkg/uuidx"
 	"github.com/casualjim/bubo/provider"
+	"github.com/casualjim/bubo/tool"
 	"github.com/casualjim/bubo/types"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -169,22 +170,22 @@ func (m testModel) String() string              { return "test_model" }
 func (m testModel) Name() string                { return "test_model" }
 
 type testAgent struct {
-	bubo.Owl
+	api.Owl
 	testName           string
-	testModel          bubo.Model
+	testModel          api.Model
 	testInstructions   string
-	testTools          []bubo.AgentToolDefinition
+	testTools          []tool.Definition
 	testToolChoice     string
 	testParallel       bool
 	renderInstructions func(cv types.ContextVars) (string, error)
 }
 
-func (t *testAgent) Name() string                      { return t.testName }
-func (t *testAgent) Model() bubo.Model                 { return t.testModel }
-func (t *testAgent) Instructions() string              { return t.testInstructions }
-func (t *testAgent) Tools() []bubo.AgentToolDefinition { return t.testTools }
-func (t *testAgent) ToolChoice() string                { return t.testToolChoice }
-func (t *testAgent) ParallelToolCalls() bool           { return t.testParallel }
+func (t *testAgent) Name() string             { return t.testName }
+func (t *testAgent) Model() api.Model         { return t.testModel }
+func (t *testAgent) Instructions() string     { return t.testInstructions }
+func (t *testAgent) Tools() []tool.Definition { return t.testTools }
+func (t *testAgent) ToolChoice() string       { return t.testToolChoice }
+func (t *testAgent) ParallelToolCalls() bool  { return t.testParallel }
 func (t *testAgent) RenderInstructions(cv types.ContextVars) (string, error) {
 	if t.renderInstructions != nil {
 		return t.renderInstructions(cv)
@@ -208,7 +209,7 @@ func newTestAgent() *testAgent {
 		testName:         "test_agent",
 		testModel:        testModel{provider: &mockProvider{}},
 		testInstructions: "test instructions",
-		testTools: []bubo.AgentToolDefinition{
+		testTools: []tool.Definition{
 			{
 				Name:     "test_tool",
 				Function: func() string { return "result" },
@@ -289,7 +290,7 @@ func TestCallFunctionExtended(t *testing.T) {
 		},
 		{
 			name: "agent return",
-			fn: func() bubo.Owl {
+			fn: func() api.Owl {
 				return newTestAgent()
 			},
 			wantValue: `{"assistant":"test_agent"}`,
@@ -363,7 +364,7 @@ func TestHandleToolCalls(t *testing.T) {
 		agent := &testAgent{
 			testName:  "test_agent",
 			testModel: testModel{provider: &mockProvider{}},
-			testTools: []bubo.AgentToolDefinition{
+			testTools: []tool.Definition{
 				{
 					Name: "regular_tool",
 					Function: func() string {
@@ -373,7 +374,7 @@ func TestHandleToolCalls(t *testing.T) {
 				},
 				{
 					Name: "agent_tool",
-					Function: func() bubo.Owl {
+					Function: func() api.Owl {
 						executionOrder = append(executionOrder, "agent_tool")
 						return nextTestAgent
 					},
@@ -415,7 +416,7 @@ func TestHandleToolCalls(t *testing.T) {
 		agent := &testAgent{
 			testName:  "test_agent",
 			testModel: testModel{provider: &mockProvider{}},
-			testTools: []bubo.AgentToolDefinition{
+			testTools: []tool.Definition{
 				{
 					Name: "first_tool",
 					Function: func(cv types.ContextVars) types.ContextVars {
@@ -482,7 +483,7 @@ func TestHandleToolCalls(t *testing.T) {
 		agent := &testAgent{
 			testName:  "test_agent",
 			testModel: testModel{provider: &mockProvider{}},
-			testTools: []bubo.AgentToolDefinition{
+			testTools: []tool.Definition{
 				{
 					Name: "tool1",
 					Function: func() string {
@@ -563,17 +564,17 @@ func TestHandleToolCalls(t *testing.T) {
 		agent := &testAgent{
 			testName:  "test_agent",
 			testModel: testModel{provider: &mockProvider{}},
-			testTools: []bubo.AgentToolDefinition{
+			testTools: []tool.Definition{
 				{
 					Name: "agent_tool1",
-					Function: func() bubo.Owl {
+					Function: func() api.Owl {
 						executionOrder = append(executionOrder, "agent_tool1")
 						return nextTestAgent1
 					},
 				},
 				{
 					Name: "agent_tool2",
-					Function: func() bubo.Owl {
+					Function: func() api.Owl {
 						executionOrder = append(executionOrder, "agent_tool2")
 						return nextTestAgent2
 					},
@@ -863,7 +864,7 @@ func TestRun(t *testing.T) {
 			testName:         "test_agent",
 			testModel:        testModel{provider: &mockProvider{}},
 			testInstructions: "test instructions",
-			testTools: []bubo.AgentToolDefinition{
+			testTools: []tool.Definition{
 				{
 					Name:     "test_tool",
 					Function: func() string { return "result" },
@@ -989,7 +990,7 @@ func TestRun(t *testing.T) {
 
 		agent := newTestAgent()
 		agent.testParallel = true
-		agent.testTools = []bubo.AgentToolDefinition{
+		agent.testTools = []tool.Definition{
 			{
 				Name: "error_tool",
 				Function: func() error {
@@ -1065,7 +1066,7 @@ func TestRun(t *testing.T) {
 		local := NewLocal[string](broker)
 
 		agent := newTestAgent()
-		agent.testTools = []bubo.AgentToolDefinition{
+		agent.testTools = []tool.Definition{
 			{
 				Name: "set_var",
 				Function: func(cv types.ContextVars) types.ContextVars {
@@ -1207,7 +1208,7 @@ func TestHandleToolCallsWithContextVars(t *testing.T) {
 
 	contextVars := types.ContextVars{"test": "value"}
 	agent := newTestAgent()
-	agent.testTools = []bubo.AgentToolDefinition{
+	agent.testTools = []tool.Definition{
 		{
 			Name: "context_tool",
 			Function: func(cv types.ContextVars) string {
@@ -1256,10 +1257,10 @@ func TestHandleToolCallsWithAgentReturn(t *testing.T) {
 	nextTestAgent.testName = "next_agent"
 
 	agent := newTestAgent()
-	agent.testTools = []bubo.AgentToolDefinition{
+	agent.testTools = []tool.Definition{
 		{
 			Name: "agent_tool",
-			Function: func() bubo.Owl {
+			Function: func() api.Owl {
 				return nextTestAgent
 			},
 		},
@@ -1332,17 +1333,17 @@ func TestHandleToolCallsWithMixedTools(t *testing.T) {
 	agent := &testAgent{
 		testName:  "test_agent",
 		testModel: testModel{provider: &mockProvider{}},
-		testTools: []bubo.AgentToolDefinition{
+		testTools: []tool.Definition{
 			{
 				Name: "b_agent_tool", // Deliberately named to test order preservation
-				Function: func() bubo.Owl {
+				Function: func() api.Owl {
 					executionOrder = append(executionOrder, "b_agent_tool")
 					return newTestAgent()
 				},
 			},
 			{
 				Name: "a_agent_tool", // Deliberately named to test order preservation
-				Function: func() bubo.Owl {
+				Function: func() api.Owl {
 					executionOrder = append(executionOrder, "a_agent_tool")
 					return newTestAgent()
 				},
@@ -1482,7 +1483,7 @@ func TestHandleToolCallsContextPropagation(t *testing.T) {
 	agent := &testAgent{
 		testName:  "test_agent",
 		testModel: testModel{provider: &mockProvider{}},
-		testTools: []bubo.AgentToolDefinition{
+		testTools: []tool.Definition{
 			{
 				Name: "tool1",
 				Function: func() types.ContextVars {

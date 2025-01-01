@@ -7,13 +7,13 @@ import (
 	"os"
 	"time"
 
-	"github.com/casualjim/bubo"
 	"github.com/casualjim/bubo/events"
 	"github.com/casualjim/bubo/examples/internal/msgfmt"
 	pubsub "github.com/casualjim/bubo/internal/broker"
 	"github.com/casualjim/bubo/internal/executor"
 	"github.com/casualjim/bubo/internal/shorttermmemory"
 	"github.com/casualjim/bubo/messages"
+	"github.com/casualjim/bubo/owl"
 	"github.com/casualjim/bubo/pkg/slogx"
 	"github.com/casualjim/bubo/provider/openai"
 	"github.com/hokaccha/go-prettyjson"
@@ -42,7 +42,7 @@ func main() {
 	slog.Info("running basic/minimal example")
 	ctx := context.Background()
 
-	agent := bubo.NewAgent("minimal-agent", openai.GPT4oMini(), "You are a helpful assistant")
+	agent := owl.New(owl.Name("minimal-agent"), owl.Model(openai.GPT4oMini()), owl.Instructions("You are a helpful assistant"))
 	exec := executor.NewLocal(pubsub.Local[string]())
 	memory := shorttermmemory.NewAggregator()
 	stream, hook := newChannelHook[string]()

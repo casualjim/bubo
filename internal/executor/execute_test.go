@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/casualjim/bubo"
+	"github.com/casualjim/bubo/api"
 	"github.com/casualjim/bubo/internal/shorttermmemory"
 	"github.com/casualjim/bubo/types"
 	"github.com/stretchr/testify/assert"
@@ -17,7 +17,7 @@ type testResponse struct {
 }
 
 type mockAgent struct {
-	bubo.Owl
+	api.Owl
 }
 
 func TestNewRunCommand(t *testing.T) {

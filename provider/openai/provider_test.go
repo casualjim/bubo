@@ -14,6 +14,7 @@ import (
 	"github.com/casualjim/bubo/internal/shorttermmemory"
 	"github.com/casualjim/bubo/messages"
 	"github.com/casualjim/bubo/provider"
+	"github.com/casualjim/bubo/tool"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
@@ -34,7 +35,7 @@ func TestProvider_buildRequest_Error(t *testing.T) {
 	aggregator := shorttermmemory.NewAggregator()
 
 	// Create a tool with an invalid function that will fail JSON conversion
-	invalidTool := provider.ToolDefinition{
+	invalidTool := tool.Definition{
 		Name:        "invalid_tool",
 		Description: "A test tool",
 		Parameters:  map[string]string{"param1": "value1"},
@@ -45,7 +46,7 @@ func TestProvider_buildRequest_Error(t *testing.T) {
 		RunID:        runID,
 		Instructions: "Test instructions",
 		Thread:       aggregator,
-		Tools:        []provider.ToolDefinition{invalidTool},
+		Tools:        []tool.Definition{invalidTool},
 	}
 
 	_, err := p.buildRequest(ctx, params)
@@ -73,7 +74,7 @@ func TestProvider_buildRequest(t *testing.T) {
 	aggregator.AddUserPrompt(userMsg)
 
 	// Create a test tool
-	toolDef := provider.ToolDefinition{
+	toolDef := tool.Definition{
 		Name:        "test_tool",
 		Description: "A test tool",
 		Parameters: map[string]string{
@@ -88,7 +89,7 @@ func TestProvider_buildRequest(t *testing.T) {
 		Thread:       aggregator,
 		Stream:       false,
 		Model:        GPT4oMini(),
-		Tools:        []provider.ToolDefinition{toolDef},
+		Tools:        []tool.Definition{toolDef},
 	}
 
 	chatParams, err := p.buildRequest(ctx, params)
@@ -204,7 +205,7 @@ func TestProvider_buildRequest_ComplexTools(t *testing.T) {
 	aggregator := shorttermmemory.NewAggregator()
 
 	// Create tools with string parameters
-	toolDefs := []provider.ToolDefinition{
+	toolDefs := []tool.Definition{
 		{
 			Name:        "complex_tool",
 			Description: "A tool with multiple parameters",

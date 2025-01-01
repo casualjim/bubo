@@ -1,10 +1,32 @@
-package bubo
+package tool
 
 import (
+	"reflect"
 	"testing"
+
+	"github.com/invopop/jsonschema"
+	"github.com/stretchr/testify/assert"
+	orderedmap "github.com/wk8/go-ordered-map/v2"
 )
 
-func TestWithToolName(t *testing.T) {
+func TestMustAgentFunction(t *testing.T) {
+	testFunc := func() {}
+
+	t.Run("valid function", func(t *testing.T) {
+		assert.NotPanics(t, func() {
+			def := Must(testFunc)
+			assert.Equal(t, reflect.ValueOf(testFunc).Pointer(), reflect.ValueOf(def.Function).Pointer())
+		})
+	})
+
+	t.Run("invalid function", func(t *testing.T) {
+		assert.Panics(t, func() {
+			Must("not a function")
+		})
+	})
+}
+
+func TestName(t *testing.T) {
 	tests := []struct {
 		name     string
 		toolName string
@@ -26,19 +48,19 @@ func TestWithToolName(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testFunc := func() {}
-			def, err := AgentTool(testFunc, WithToolName(tt.toolName))
+			def, err := New(testFunc, Name(tt.toolName))
 			if err != nil {
 				t.Errorf("AgentTool() error = %v", err)
 				return
 			}
 			if def.Name != tt.toolName {
-				t.Errorf("AgentTool() with WithToolName() got = %q, want %q", def.Name, tt.toolName)
+				t.Errorf("AgentTool() with Name() got = %q, want %q", def.Name, tt.toolName)
 			}
 		})
 	}
 }
 
-func TestWithToolDescription(t *testing.T) {
+func TestDescription(t *testing.T) {
 	tests := []struct {
 		name        string
 		description string
@@ -60,19 +82,19 @@ func TestWithToolDescription(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testFunc := func() {}
-			def, err := AgentTool(testFunc, WithToolDescription(tt.description))
+			def, err := New(testFunc, Description(tt.description))
 			if err != nil {
 				t.Errorf("AgentTool() error = %v", err)
 				return
 			}
 			if def.Description != tt.description {
-				t.Errorf("AgentTool() with WithToolDescription() got = %v, want %v", def.Description, tt.description)
+				t.Errorf("AgentTool() with Description() got = %v, want %v", def.Description, tt.description)
 			}
 		})
 	}
 }
 
-func TestWithToolParameters(t *testing.T) {
+func TestParameters(t *testing.T) {
 	tests := []struct {
 		name       string
 		parameters []string
@@ -104,20 +126,20 @@ func TestWithToolParameters(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testFunc := func() {}
-			def, err := AgentTool(testFunc, WithToolParameters(tt.parameters...))
+			def, err := New(testFunc, Parameters(tt.parameters...))
 			if err != nil {
 				t.Errorf("AgentTool() error = %v", err)
 				return
 			}
 
 			if len(def.Parameters) != len(tt.want) {
-				t.Errorf("AgentTool() with WithToolParameters() got len = %v, want len = %v", len(def.Parameters), len(tt.want))
+				t.Errorf("AgentTool() with Parameters() got len = %v, want len = %v", len(def.Parameters), len(tt.want))
 				return
 			}
 
 			for k, v := range tt.want {
 				if got := def.Parameters[k]; got != v {
-					t.Errorf("AgentTool() with WithToolParameters() got[%s] = %v, want[%s] = %v", k, got, k, v)
+					t.Errorf("AgentTool() with Parameters() got[%s] = %v, want[%s] = %v", k, got, k, v)
 				}
 			}
 		})
@@ -126,10 +148,10 @@ func TestWithToolParameters(t *testing.T) {
 
 func TestWithToolCombined(t *testing.T) {
 	testFunc := func() {}
-	def, err := AgentTool(testFunc,
-		WithToolName("test_tool"),
-		WithToolDescription("A test tool"),
-		WithToolParameters("param1", "param2"),
+	def, err := New(testFunc,
+		Name("test_tool"),
+		Description("A test tool"),
+		Parameters("param1", "param2"),
 	)
 	if err != nil {
 		t.Errorf("AgentTool() error = %v", err)
@@ -159,5 +181,43 @@ func TestWithToolCombined(t *testing.T) {
 		if got := def.Parameters[k]; got != v {
 			t.Errorf("Parameters got[%s] = %v, want[%s] = %v", k, got, k, v)
 		}
+	}
+}
+
+func TestToolDefinition_ToNameAndSchema(t *testing.T) {
+	om := orderedmap.New[string, *jsonschema.Schema]()
+	om.Set("value1", &jsonschema.Schema{
+		Type: "string",
+	})
+	tests := []struct {
+		name       string
+		tool       Definition
+		wantName   string
+		wantSchema *jsonschema.Schema
+	}{
+		{
+			name: "basic tool",
+			tool: Definition{
+				Name:        "test_tool",
+				Description: "A test tool",
+				Parameters:  map[string]string{"param0": "value1"},
+
+				Function: func(s string) string { return s },
+			},
+			wantName: "test_tool",
+			wantSchema: &jsonschema.Schema{
+				Type:       "object",
+				Properties: om,
+				Required:   []string{"value1"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotName, gotSchema := tt.tool.ToNameAndSchema()
+			assert.Equal(t, tt.wantName, gotName)
+			assert.Equal(t, tt.wantSchema, gotSchema)
+		})
 	}
 }

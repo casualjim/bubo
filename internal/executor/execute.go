@@ -6,9 +6,9 @@ import (
 	"math"
 	"reflect"
 
-	"github.com/casualjim/bubo"
-	"github.com/casualjim/bubo/executor/pubsub"
-	"github.com/casualjim/bubo/pkg/runstate"
+	"github.com/casualjim/bubo/api"
+	"github.com/casualjim/bubo/events"
+	"github.com/casualjim/bubo/internal/shorttermmemory"
 	"github.com/casualjim/bubo/pkg/uuidx"
 	"github.com/casualjim/bubo/types"
 	"github.com/goccy/go-json"
@@ -30,7 +30,7 @@ func toJSONSchema[T any]() *jsonschema.Schema {
 	return schema
 }
 
-func NewRunCommand[T any](agent bubo.Agent, thread *runstate.Aggregator, hook pubsub.Hook[T]) (RunCommand[T], error) {
+func NewRunCommand[T any](agent api.Owl, thread *shorttermmemory.Aggregator, hook events.Hook[T]) (RunCommand[T], error) {
 	var err error
 	if agent == nil {
 		err = errors.Join(err, errors.New("agent is required"))
@@ -91,14 +91,14 @@ func NewRunCommand[T any](agent bubo.Agent, thread *runstate.Aggregator, hook pu
 
 type RunCommand[T any] struct {
 	ID                uuid.UUID
-	Agent             bubo.Agent
-	Thread            *runstate.Aggregator
+	Agent             api.Owl
+	Thread            *shorttermmemory.Aggregator
 	ResponseSchema    *jsonschema.Schema
 	UnmarshalResponse func([]byte) (T, error)
 	Stream            bool
 	MaxTurns          int
 	ContextVariables  types.ContextVars
-	Hook              pubsub.Hook[T]
+	Hook              events.Hook[T]
 }
 
 func (r RunCommand[T]) WithStream(stream bool) RunCommand[T] {

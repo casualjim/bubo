@@ -7,12 +7,13 @@ import (
 	"os"
 	"time"
 
-	"github.com/casualjim/bubo"
+	"github.com/casualjim/bubo/events"
 	"github.com/casualjim/bubo/examples/internal/msgfmt"
-	"github.com/casualjim/bubo/executor"
-	"github.com/casualjim/bubo/executor/pubsub"
-	"github.com/casualjim/bubo/pkg/messages"
-	"github.com/casualjim/bubo/pkg/runstate"
+	pubsub "github.com/casualjim/bubo/internal/broker"
+	"github.com/casualjim/bubo/internal/executor"
+	"github.com/casualjim/bubo/internal/shorttermmemory"
+	"github.com/casualjim/bubo/messages"
+	"github.com/casualjim/bubo/owl"
 	"github.com/casualjim/bubo/pkg/slogx"
 	"github.com/casualjim/bubo/provider/openai"
 	"github.com/hokaccha/go-prettyjson"
@@ -41,9 +42,9 @@ func main() {
 	slog.Info("running basic/minimal example")
 	ctx := context.Background()
 
-	agent := bubo.NewAgent("minimal-agent", openai.GPT4oMini(), "You are a helpful assistant")
-	exec := executor.NewLocal(pubsub.LocalBroker[string]())
-	memory := runstate.NewAggregator()
+	agent := owl.New(owl.Name("minimal-agent"), owl.Model(openai.GPT4oMini()), owl.Instructions("You are a helpful assistant"))
+	exec := executor.NewLocal(pubsub.Local[string]())
+	memory := shorttermmemory.NewAggregator()
 	stream, hook := newChannelHook[string]()
 
 	memory.AddUserPrompt(messages.New().WithSender("user").UserPrompt("Hello, world!"))
@@ -64,18 +65,18 @@ func main() {
 	fmt.Println(string(jb))
 }
 
-func newChannelHook[T any]() (<-chan pubsub.Event, pubsub.Hook[T]) {
-	ch := make(chan pubsub.Event, 100)
+func newChannelHook[T any]() (<-chan events.Event, events.Hook[T]) {
+	ch := make(chan events.Event, 100)
 	return ch, &channelHook[T]{ch: ch}
 }
 
 type channelHook[T any] struct {
-	ch chan<- pubsub.Event
+	ch chan<- events.Event
 }
 
 func (c *channelHook[T]) OnUserPrompt(ctx context.Context, msg messages.Message[messages.UserMessage]) {
 	slog.InfoContext(ctx, "user prompt", slog.Any("message", msg))
-	c.ch <- pubsub.Request[messages.UserMessage]{
+	c.ch <- events.Request[messages.UserMessage]{
 		RunID:     msg.RunID,
 		TurnID:    msg.TurnID,
 		Message:   msg.Payload,
@@ -87,7 +88,7 @@ func (c *channelHook[T]) OnUserPrompt(ctx context.Context, msg messages.Message[
 
 func (c *channelHook[T]) OnAssistantChunk(ctx context.Context, msg messages.Message[messages.AssistantMessage]) {
 	slog.InfoContext(ctx, "assistant chunk", slog.Any("message", msg))
-	c.ch <- pubsub.Chunk[messages.AssistantMessage]{
+	c.ch <- events.Chunk[messages.AssistantMessage]{
 		RunID:     msg.RunID,
 		TurnID:    msg.TurnID,
 		Chunk:     msg.Payload,
@@ -99,7 +100,7 @@ func (c *channelHook[T]) OnAssistantChunk(ctx context.Context, msg messages.Mess
 
 func (c *channelHook[T]) OnToolCallChunk(ctx context.Context, msg messages.Message[messages.ToolCallMessage]) {
 	slog.InfoContext(ctx, "tool call chunk", slog.Any("message", msg))
-	c.ch <- pubsub.Chunk[messages.ToolCallMessage]{
+	c.ch <- events.Chunk[messages.ToolCallMessage]{
 		RunID:     msg.RunID,
 		TurnID:    msg.TurnID,
 		Chunk:     msg.Payload,
@@ -111,7 +112,7 @@ func (c *channelHook[T]) OnToolCallChunk(ctx context.Context, msg messages.Messa
 
 func (c *channelHook[T]) OnAssistantMessage(ctx context.Context, msg messages.Message[messages.AssistantMessage]) {
 	slog.InfoContext(ctx, "assistant message", slog.Any("message", msg))
-	c.ch <- pubsub.Response[messages.AssistantMessage]{
+	c.ch <- events.Response[messages.AssistantMessage]{
 		RunID:     msg.RunID,
 		TurnID:    msg.TurnID,
 		Response:  msg.Payload,
@@ -123,7 +124,7 @@ func (c *channelHook[T]) OnAssistantMessage(ctx context.Context, msg messages.Me
 
 func (c *channelHook[T]) OnToolCallMessage(ctx context.Context, msg messages.Message[messages.ToolCallMessage]) {
 	slog.InfoContext(ctx, "tool call message", slog.Any("message", msg))
-	c.ch <- pubsub.Response[messages.ToolCallMessage]{
+	c.ch <- events.Response[messages.ToolCallMessage]{
 		RunID:     msg.RunID,
 		TurnID:    msg.TurnID,
 		Response:  msg.Payload,
@@ -135,7 +136,7 @@ func (c *channelHook[T]) OnToolCallMessage(ctx context.Context, msg messages.Mes
 
 func (c *channelHook[T]) OnToolCallResponse(ctx context.Context, msg messages.Message[messages.ToolResponse]) {
 	slog.InfoContext(ctx, "tool call respons", slog.Any("message", msg))
-	c.ch <- pubsub.Request[messages.ToolResponse]{
+	c.ch <- events.Request[messages.ToolResponse]{
 		RunID:     msg.RunID,
 		TurnID:    msg.TurnID,
 		Message:   msg.Payload,

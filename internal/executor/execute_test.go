@@ -4,8 +4,8 @@ import (
 	"math"
 	"testing"
 
-	"github.com/casualjim/bubo"
-	"github.com/casualjim/bubo/pkg/runstate"
+	"github.com/casualjim/bubo/api"
+	"github.com/casualjim/bubo/internal/shorttermmemory"
 	"github.com/casualjim/bubo/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,13 +17,13 @@ type testResponse struct {
 }
 
 type mockAgent struct {
-	bubo.Agent
+	api.Owl
 }
 
 func TestNewRunCommand(t *testing.T) {
 	t.Run("creates command with valid inputs", func(t *testing.T) {
 		agent := &mockAgent{}
-		thread := runstate.NewAggregator()
+		thread := shorttermmemory.NewAggregator()
 		hook := &mockHook[testResponse]{}
 
 		cmd, err := NewRunCommand[testResponse](agent, thread, hook)
@@ -38,7 +38,7 @@ func TestNewRunCommand(t *testing.T) {
 
 	t.Run("creates command with gjson.Result type", func(t *testing.T) {
 		agent := &mockAgent{}
-		thread := runstate.NewAggregator()
+		thread := shorttermmemory.NewAggregator()
 		hook := &mockHook[gjson.Result]{}
 
 		cmd, err := NewRunCommand[gjson.Result](agent, thread, hook)
@@ -57,7 +57,7 @@ func TestNewRunCommand(t *testing.T) {
 	})
 
 	t.Run("fails with nil agent", func(t *testing.T) {
-		thread := runstate.NewAggregator()
+		thread := shorttermmemory.NewAggregator()
 		hook := &mockHook[testResponse]{}
 
 		_, err := NewRunCommand[testResponse](nil, thread, hook)
@@ -76,7 +76,7 @@ func TestNewRunCommand(t *testing.T) {
 
 	t.Run("fails with nil hook", func(t *testing.T) {
 		agent := &mockAgent{}
-		thread := runstate.NewAggregator()
+		thread := shorttermmemory.NewAggregator()
 
 		_, err := NewRunCommand[testResponse](agent, thread, nil)
 		require.Error(t, err)
@@ -85,7 +85,7 @@ func TestNewRunCommand(t *testing.T) {
 
 	t.Run("unmarshaler works with regular struct", func(t *testing.T) {
 		agent := &mockAgent{}
-		thread := runstate.NewAggregator()
+		thread := shorttermmemory.NewAggregator()
 		hook := &mockHook[testResponse]{}
 
 		cmd, err := NewRunCommand[testResponse](agent, thread, hook)
@@ -98,7 +98,7 @@ func TestNewRunCommand(t *testing.T) {
 
 	t.Run("unmarshaler fails with invalid json for regular struct", func(t *testing.T) {
 		agent := &mockAgent{}
-		thread := runstate.NewAggregator()
+		thread := shorttermmemory.NewAggregator()
 		hook := &mockHook[testResponse]{}
 
 		cmd, err := NewRunCommand[testResponse](agent, thread, hook)
@@ -111,7 +111,7 @@ func TestNewRunCommand(t *testing.T) {
 
 func TestRunCommandMethods(t *testing.T) {
 	agent := &mockAgent{}
-	thread := runstate.NewAggregator()
+	thread := shorttermmemory.NewAggregator()
 	hook := &mockHook[testResponse]{}
 
 	cmd, err := NewRunCommand[testResponse](agent, thread, hook)

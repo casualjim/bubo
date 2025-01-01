@@ -8,7 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/casualjim/bubo/pkg/messages"
+	"github.com/casualjim/bubo/messages"
+	"github.com/casualjim/bubo/pkg/jsonx"
 	"github.com/casualjim/bubo/provider"
 	"github.com/go-openapi/strfmt"
 	"github.com/openai/openai-go"
@@ -39,7 +40,7 @@ func (p *Provider) buildRequest(_ context.Context, params *provider.CompletionPa
 
 		name, parameters := tool.ToNameAndSchema()
 
-		jv, err := provider.ToDynamicJSON(parameters)
+		jv, err := jsonx.ToDynamicJSON(parameters)
 		if err != nil {
 			return openai.ChatCompletionNewParams{}, fmt.Errorf("failed to convert tool to name and schema: %w", err)
 		}

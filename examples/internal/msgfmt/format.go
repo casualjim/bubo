@@ -6,27 +6,27 @@ import (
 	"io"
 	"strings"
 
-	"github.com/casualjim/bubo/executor/pubsub"
-	"github.com/casualjim/bubo/pkg/messages"
-	"github.com/casualjim/bubo/pkg/runstate"
+	buboevents "github.com/casualjim/bubo/events"
+	"github.com/casualjim/bubo/internal/shorttermmemory"
+	"github.com/casualjim/bubo/messages"
 	"github.com/fatih/color"
 )
 
 type Formatter interface {
-	Format(context.Context, io.Writer, *runstate.Aggregator) error
+	Format(context.Context, io.Writer, *shorttermmemory.Aggregator) error
 }
 
-type FormatterFunc func(context.Context, io.Writer, *runstate.Aggregator) error
+type FormatterFunc func(context.Context, io.Writer, *shorttermmemory.Aggregator) error
 
-func ConsolePretty(ctx context.Context, w io.Writer, events <-chan pubsub.Event) error {
+func ConsolePretty(ctx context.Context, w io.Writer, events <-chan buboevents.Event) error {
 	return printStreamingMessages(ctx, w, events)
 }
 
-func (fn FormatterFunc) Format(ctx context.Context, w io.Writer, s *runstate.Aggregator) error {
+func (fn FormatterFunc) Format(ctx context.Context, w io.Writer, s *shorttermmemory.Aggregator) error {
 	return fn(ctx, w, s)
 }
 
-func printStreamingMessages(ctx context.Context, w io.Writer, events <-chan pubsub.Event) error {
+func printStreamingMessages(ctx context.Context, w io.Writer, events <-chan buboevents.Event) error {
 	var content string
 	var lastSender string
 
@@ -40,12 +40,12 @@ func printStreamingMessages(ctx context.Context, w io.Writer, events <-chan pubs
 			}
 
 			switch e := event.(type) {
-			case pubsub.Delim:
+			case buboevents.Delim:
 				if e.Delim == "end" && content != "" {
 					fmt.Fprintln(w)
 					content = ""
 				}
-			case pubsub.Chunk[messages.AssistantMessage]:
+			case buboevents.Chunk[messages.AssistantMessage]:
 				if e.Sender != "" {
 					lastSender = e.Sender
 				}
@@ -60,7 +60,7 @@ func printStreamingMessages(ctx context.Context, w io.Writer, events <-chan pubs
 					content += e.Chunk.Content.Content
 				}
 
-			case pubsub.Chunk[messages.ToolCallMessage]:
+			case buboevents.Chunk[messages.ToolCallMessage]:
 				if e.Sender != "" {
 					lastSender = e.Sender
 				}
@@ -74,7 +74,7 @@ func printStreamingMessages(ctx context.Context, w io.Writer, events <-chan pubs
 						fmt.Fprintf(w, "%s%s\n", color.YellowString(tc.Name), args)
 					}
 				}
-			case pubsub.Error:
+			case buboevents.Error:
 				fmt.Fprintf(w, "Error: %v\n", e.Err)
 			}
 		}

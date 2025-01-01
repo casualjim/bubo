@@ -3,12 +3,12 @@ package executor
 import (
 	"context"
 
-	"github.com/casualjim/bubo/executor/pubsub"
-	"github.com/casualjim/bubo/pkg/messages"
+	"github.com/casualjim/bubo/events"
+	"github.com/casualjim/bubo/messages"
 )
 
 type mockHook[T any] struct {
-	pubsub.Hook[T]
+	events.Hook[T]
 }
 
 func (h *mockHook[T]) OnUserPrompt(ctx context.Context, msg messages.Message[messages.UserMessage]) {}

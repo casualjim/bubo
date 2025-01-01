@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/casualjim/bubo/pkg/messages"
-	"github.com/casualjim/bubo/pkg/runstate"
+	"github.com/casualjim/bubo/internal/shorttermmemory"
+	"github.com/casualjim/bubo/messages"
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -117,7 +117,7 @@ func TestResponse_MarshalJSON(t *testing.T) {
 	turnID := uuid.New()
 	timestamp := strfmt.DateTime(time.Now().UTC().Truncate(time.Millisecond))
 
-	aggregator := runstate.NewAggregator()
+	aggregator := shorttermmemory.NewAggregator()
 	response := Response[messages.AssistantMessage]{
 		RunID:      runID,
 		TurnID:     turnID,

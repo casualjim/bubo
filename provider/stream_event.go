@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/casualjim/bubo/pkg/messages"
-	"github.com/casualjim/bubo/pkg/runstate"
+	"github.com/casualjim/bubo/internal/shorttermmemory"
+	"github.com/casualjim/bubo/messages"
 	"github.com/go-openapi/strfmt"
 	json "github.com/goccy/go-json"
 	"github.com/google/uuid"
@@ -57,12 +57,12 @@ func ChunkToMessage[T messages.Response, M messages.ModelMessage](dst *messages.
 }
 
 type Response[T messages.Response] struct {
-	RunID      uuid.UUID           `json:"run_id"`
-	TurnID     uuid.UUID           `json:"turn_id"`
-	Checkpoint runstate.Checkpoint `json:"checkpoint"`
-	Response   T                   `json:"response"`
-	Timestamp  strfmt.DateTime     `json:"timestamp,omitempty"`
-	Meta       gjson.Result        `json:"meta,omitempty"`
+	RunID      uuid.UUID                  `json:"run_id"`
+	TurnID     uuid.UUID                  `json:"turn_id"`
+	Checkpoint shorttermmemory.Checkpoint `json:"checkpoint"`
+	Response   T                          `json:"response"`
+	Timestamp  strfmt.DateTime            `json:"timestamp,omitempty"`
+	Meta       gjson.Result               `json:"meta,omitempty"`
 }
 
 func (Response[T]) streamEvent() {}

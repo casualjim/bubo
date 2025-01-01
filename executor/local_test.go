@@ -726,14 +726,17 @@ func (m *mockBroker[T]) waitForEvent(id string, timeout time.Duration, predicate
 
 type mockProvider struct {
 	provider.Provider
-	responses []provider.StreamEvent
-	err       error
+	responses  []provider.StreamEvent
+	err        error
+	lastParams provider.CompletionParams // Track the last params received
 }
 
 func (m *mockProvider) ChatCompletion(ctx context.Context, params provider.CompletionParams) (<-chan provider.StreamEvent, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
+
+	m.lastParams = params // Store the params for verification
 
 	ch := make(chan provider.StreamEvent, len(m.responses))
 	for _, resp := range m.responses {
@@ -744,6 +747,45 @@ func (m *mockProvider) ChatCompletion(ctx context.Context, params provider.Compl
 }
 
 func TestRun(t *testing.T) {
+	t.Run("model forwarding to provider", func(t *testing.T) {
+		broker := newMockBroker[string]()
+		local := NewLocal[string](broker)
+
+		agent := newTestAgent()
+		thread := runstate.NewAggregator()
+		hook := &mockHook[string]{}
+
+		prov := &mockProvider{
+			responses: []provider.StreamEvent{
+				provider.Response[messages.AssistantMessage]{
+					Response: messages.AssistantMessage{
+						Content: messages.AssistantContentOrParts{
+							Content: "test result",
+						},
+					},
+				},
+			},
+		}
+		agent.testModel = testModel{provider: prov}
+
+		cmd, err := NewRunCommand[string](agent, thread, hook)
+		require.NoError(t, err)
+
+		err = local.Run(context.Background(), cmd)
+		require.NoError(t, err)
+
+		// Wait for completion to ensure ChatCompletion was called
+		_, err = broker.waitForEvent(cmd.ID.String(), time.Second, func(e pubsub.Event) bool {
+			_, ok := e.(pubsub.Result[string])
+			return ok
+		})
+		require.NoError(t, err)
+
+		// Verify the model was properly forwarded to the provider
+		assert.NotNil(t, prov.lastParams.Model, "Model should not be nil in provider params")
+		assert.Equal(t, agent.Model(), prov.lastParams.Model, "Model in provider params should match agent's model")
+	})
+
 	t.Run("successful completion", func(t *testing.T) {
 		broker := newMockBroker[string]()
 		local := NewLocal[string](broker)

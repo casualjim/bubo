@@ -42,7 +42,7 @@ release:
   footer: |
     ## Installation
     ```sh
-    go get github.com/casualjim/bubo@{{.Tag}}
+    go get github.com/casualjim/bubo/cmd/bubo-tool-gen@{{.Tag}}
     ```
 
 git:

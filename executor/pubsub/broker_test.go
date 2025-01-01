@@ -108,14 +108,17 @@ func (r *recordingHook) OnError(ctx context.Context, err error) {
 
 type overflowHook struct {
 	*recordingHook
-	processed         chan struct{}
-	minExpectedEvents int
+	processed chan struct{} // signals when processing is complete
+	block     chan struct{} // controls when to process events
 }
 
 func (h *overflowHook) OnAssistantMessage(ctx context.Context, msg messages.Message[messages.AssistantMessage]) {
+	// Wait for signal to process events
+	<-h.block
 	h.recordingHook.OnAssistantMessage(ctx, msg)
+
 	h.mu.Lock()
-	if len(h.assistantMessages) >= h.minExpectedEvents {
+	if len(h.assistantMessages) == cap(h.block) { // we've processed as many events as our blocking channel capacity
 		select {
 		case <-h.processed: // Already closed
 		default:
@@ -231,16 +234,18 @@ func TestTopic(t *testing.T) {
 
 	t.Run("handles channel overflow", func(t *testing.T) {
 		broker := LocalBroker[any]().(*broker[any])
-		broker = broker.WithSlowSubscriberTimeout(1 * time.Millisecond) // Very short timeout for testing
+		broker = broker.WithSlowSubscriberTimeout(50 * time.Millisecond) // Give enough time for test setup
 		topic := broker.Topic(context.Background(), "test")
 		ctx := context.Background()
 
+		const bufferSize = 10 // Small buffer to ensure overflow
 		processed := make(chan struct{})
-		minExpectedEvents := 10 // We expect at least this many events to be processed
+		block := make(chan struct{}, bufferSize) // Control channel with same capacity as expected processed events
+
 		recorder := &overflowHook{
-			recordingHook:     newRecordingHook(),
-			processed:         processed,
-			minExpectedEvents: minExpectedEvents,
+			recordingHook: newRecordingHook(),
+			processed:     processed,
+			block:         block,
 		}
 
 		sub, err := topic.Subscribe(ctx, recorder)
@@ -249,12 +254,10 @@ func TestTopic(t *testing.T) {
 
 		// Signal hook is ready
 		recorder.signalReady()
-
-		// Block until the hook is ready
 		<-recorder.ready
 
-		// Publish events to cause overflow
-		const numEvents = 100 // More than channel buffer size (50)
+		// Publish more events than the buffer can handle
+		const numEvents = bufferSize * 2 // Double the buffer size to ensure overflow
 		for i := 0; i < numEvents; i++ {
 			msg := messages.New().AssistantMessage(fmt.Sprintf("message-%d", i))
 			event := Response[messages.AssistantMessage]{
@@ -266,19 +269,20 @@ func TestTopic(t *testing.T) {
 			require.NoError(t, err)
 		}
 
-		// Wait for minimum events to be processed
+		// Allow processing of exactly bufferSize events
+		for i := 0; i < bufferSize; i++ {
+			block <- struct{}{} // Release one event at a time
+		}
+
+		// Wait for processing to complete
 		<-processed
 
-		// Verify events were dropped due to overflow
+		// Verify exactly bufferSize events were processed
 		recorder.mu.Lock()
 		messagesLen := len(recorder.assistantMessages)
 		recorder.mu.Unlock()
 
-		// We expect some messages to be dropped due to overflow
-		// The exact number processed will depend on the buffer size (50)
-		// and how quickly the subscriber processes them
-		assert.Greater(t, messagesLen, 0, "Should process some events")
-		assert.Less(t, messagesLen, numEvents, "Should drop some events due to overflow")
+		assert.Equal(t, bufferSize, messagesLen, "Should process exactly bufferSize events")
 	})
 
 	t.Run("respects publish context cancellation", func(t *testing.T) {

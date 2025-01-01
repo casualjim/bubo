@@ -7,11 +7,25 @@ support for OpenAI's GPT models and function calling capabilities.
 
 Bubo provides a robust foundation for building AI agents that can:
 
-- Execute tools and functions
-- Handle streaming responses
+- Execute tools and functions with parallel execution support
+- Handle streaming responses from LLM providers
 - Process multi-modal inputs (text, images, audio)
 - Manage complex conversation threads
-- Run parallel tool executions
+- Maintain short-term memory for context
+- Support event-driven architectures
+
+## 🏗 Project Structure
+
+- `api/` - Core API definitions and owl-related functionality
+- `events/` - Event system for hooks and message handling
+- `messages/` - Message types and content handling
+- `provider/` - LLM provider integrations (OpenAI, etc.)``
+- `tool/` - Tool system implementation
+- `internal/`
+  - `broker/` - Message broker implementation
+  - `executor/` - Tool execution engine
+  - `shorttermmemory/` - Context management and memory
+- `examples/` - Example implementations and usage patterns
 
 ## ✨ Key Features
 
@@ -19,9 +33,11 @@ Bubo provides a robust foundation for building AI agents that can:
   - Define custom agents with specific tools and capabilities
   - Configure model parameters and instructions
   - Support for parallel tool execution
+  - Short-term memory for maintaining context
   
-- 🔌 **OpenAI Integration**
+- 🔌 **Provider Integration**
   - First-class support for OpenAI's chat models
+  - Extensible provider system for other LLMs
   - Streaming support for real-time responses
   - Function calling capabilities
   - Multi-modal content handling (text, images, audio)
@@ -30,14 +46,16 @@ Bubo provides a robust foundation for building AI agents that can:
   - Support for various message types (user, assistant, tool calls)
   - Structured content parts for different media types
   - Thread management for complex conversations
+  - Event-driven message processing
 
 - 🔧 **Tool System**
   - Define custom tools with JSON schema validation
   - Support for parallel tool execution
   - Structured tool responses and error handling
+  - Tool generation utilities
 
 - 📊 **Observability**
-  - Detailed logging with zerolog integration
+  - Event hooks for system monitoring
   - Stream events for real-time monitoring
   - Error tracking and handling
 
@@ -47,28 +65,57 @@ Bubo provides a robust foundation for building AI agents that can:
 package main
 
 import (
-  "github.com/casualjim/bubo"
-  "github.com/openai/openai-go"
+  "context"
+  "fmt"
+  "log/slog"
+  "os"
+
+  "github.com/casualjim/bubo/events"
+  "github.com/casualjim/bubo/examples/internal/msgfmt"
+  pubsub "github.com/casualjim/bubo/internal/broker"
+  "github.com/casualjim/bubo/internal/executor"
+  "github.com/casualjim/bubo/internal/shorttermmemory"
+  "github.com/casualjim/bubo/messages"
+  "github.com/casualjim/bubo/owl"
+  "github.com/casualjim/bubo/provider/openai"
+  "github.com/joho/godotenv"
 )
 
 func main() {
-  // Create a new agent
-  agent := bubo.NewAgent(
-    "my-agent",
-    string(openai.ChatModelGPT4),
-    "Your agent instructions here",
+  if err := godotenv.Load(); err != nil {
+    slog.Warn("failed to load .env file")
+  }
+  ctx := context.Background()
+
+  // Create an owl (agent)
+  agent := owl.New(
+    owl.Name("minimal-agent"), 
+    owl.Model(openai.GPT4oMini()), 
+    owl.Instructions("You are a helpful assistant"),
   )
 
-  // Add tools
-  agent.AddTool(bubo.AgentToolDefinition{
-    Name: "my-tool",
-    Function: &bubo.FunctionDefinition{
-      // Define your tool's schema and behavior
-    },
-  })
+  // Setup execution environment
+  exec := executor.NewLocal(pubsub.Local[string]())
+  memory := shorttermmemory.NewAggregator()
+  stream, hook := events.NewChannelHook[string]()
 
-  // Configure parallel tool execution
-  agent.EnableParallelToolCalls()
+  // Add initial message to memory
+  memory.AddUserPrompt(messages.New().WithSender("user").UserPrompt("Hello, world!"))
+
+  // Create and run command
+  cmd, err := executor.NewRunCommand(agent, memory, hook)
+  if err != nil {
+    slog.Error("failed to create command", "error", err)
+  }
+
+  if err := exec.Run(ctx, cmd); err != nil {
+    slog.Error("failed to run command", "error", err)
+  }
+
+  // Format and display output
+  if err := msgfmt.ConsolePretty(ctx, os.Stdout, stream); err != nil {
+    slog.Error("failed to format output", "error", err)
+  }
 }
 ```
 
@@ -80,8 +127,8 @@ go get github.com/casualjim/bubo
 
 ## 🛠 Requirements
 
-- Go 1.23.3 or higher
-- OpenAI API key for AI capabilities
+- Go 1.21 or higher
+- OpenAI API key (for OpenAI provider)
 
 ## 📝 License
 

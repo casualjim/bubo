@@ -11,9 +11,10 @@ import (
 	"time"
 
 	"github.com/casualjim/bubo"
-	"github.com/casualjim/bubo/executor/pubsub"
-	"github.com/casualjim/bubo/pkg/messages"
-	"github.com/casualjim/bubo/pkg/runstate"
+	"github.com/casualjim/bubo/events"
+	pubsub "github.com/casualjim/bubo/internal/broker"
+	"github.com/casualjim/bubo/internal/shorttermmemory"
+	"github.com/casualjim/bubo/messages"
 	"github.com/casualjim/bubo/pkg/uuidx"
 	"github.com/casualjim/bubo/provider"
 	"github.com/casualjim/bubo/types"
@@ -168,7 +169,7 @@ func (m testModel) String() string              { return "test_model" }
 func (m testModel) Name() string                { return "test_model" }
 
 type testAgent struct {
-	bubo.Agent
+	bubo.Owl
 	testName           string
 	testModel          bubo.Model
 	testInstructions   string
@@ -226,8 +227,8 @@ func TestWrapErr(t *testing.T) {
 		assert.False(t, ok)
 	})
 
-	t.Run("pubsub.Error", func(t *testing.T) {
-		originalErr := pubsub.Error{
+	t.Run("events.Error", func(t *testing.T) {
+		originalErr := events.Error{
 			RunID:  runID,
 			TurnID: turnID,
 			Sender: sender,
@@ -288,7 +289,7 @@ func TestCallFunctionExtended(t *testing.T) {
 		},
 		{
 			name: "agent return",
-			fn: func() bubo.Agent {
+			fn: func() bubo.Owl {
 				return newTestAgent()
 			},
 			wantValue: `{"assistant":"test_agent"}`,
@@ -334,7 +335,7 @@ func TestHandleToolCalls(t *testing.T) {
 			runID:       runID,
 			agent:       agent,
 			contextVars: types.ContextVars{},
-			mem:         runstate.NewAggregator(),
+			mem:         shorttermmemory.NewAggregator(),
 			toolCalls: messages.ToolCallMessage{
 				ToolCalls: []messages.ToolCallData{
 					{
@@ -372,7 +373,7 @@ func TestHandleToolCalls(t *testing.T) {
 				},
 				{
 					Name: "agent_tool",
-					Function: func() bubo.Agent {
+					Function: func() bubo.Owl {
 						executionOrder = append(executionOrder, "agent_tool")
 						return nextTestAgent
 					},
@@ -384,7 +385,7 @@ func TestHandleToolCalls(t *testing.T) {
 		params := toolCallParams[any]{
 			runID: runID,
 			agent: agent,
-			mem:   runstate.NewAggregator(),
+			mem:   shorttermmemory.NewAggregator(),
 			toolCalls: messages.ToolCallMessage{
 				ToolCalls: []messages.ToolCallData{
 					{
@@ -452,7 +453,7 @@ func TestHandleToolCalls(t *testing.T) {
 		params := toolCallParams[any]{
 			runID: runID,
 			agent: agent,
-			mem:   runstate.NewAggregator(),
+			mem:   shorttermmemory.NewAggregator(),
 			toolCalls: messages.ToolCallMessage{
 				ToolCalls: []messages.ToolCallData{
 					{
@@ -498,7 +499,7 @@ func TestHandleToolCalls(t *testing.T) {
 		}
 
 		runID := uuidx.New()
-		mem := runstate.NewAggregator()
+		mem := shorttermmemory.NewAggregator()
 		params := toolCallParams[any]{
 			runID: runID,
 			agent: agent,
@@ -525,27 +526,27 @@ func TestHandleToolCalls(t *testing.T) {
 		assert.Nil(t, nextAgent)
 
 		// Wait for first tool response
-		event1, err := broker.waitForEvent(runID.String(), time.Second, func(e pubsub.Event) bool {
-			if resp, ok := e.(pubsub.Request[messages.ToolResponse]); ok {
+		event1, err := broker.waitForEvent(runID.String(), time.Second, func(e events.Event) bool {
+			if resp, ok := e.(events.Request[messages.ToolResponse]); ok {
 				return resp.Message.ToolName == "tool1"
 			}
 			return false
 		})
 		require.NoError(t, err)
 		require.NotNil(t, event1)
-		resp1 := event1.(pubsub.Request[messages.ToolResponse])
+		resp1 := event1.(events.Request[messages.ToolResponse])
 		assert.Equal(t, "result1", resp1.Message.Content)
 
 		// Wait for second tool response
-		event2, err := broker.waitForEvent(runID.String(), time.Second, func(e pubsub.Event) bool {
-			if resp, ok := e.(pubsub.Request[messages.ToolResponse]); ok {
+		event2, err := broker.waitForEvent(runID.String(), time.Second, func(e events.Event) bool {
+			if resp, ok := e.(events.Request[messages.ToolResponse]); ok {
 				return resp.Message.ToolName == "tool2"
 			}
 			return false
 		})
 		require.NoError(t, err)
 		require.NotNil(t, event2)
-		resp2 := event2.(pubsub.Request[messages.ToolResponse])
+		resp2 := event2.(events.Request[messages.ToolResponse])
 		assert.Equal(t, "result2", resp2.Message.Content)
 	})
 
@@ -565,14 +566,14 @@ func TestHandleToolCalls(t *testing.T) {
 			testTools: []bubo.AgentToolDefinition{
 				{
 					Name: "agent_tool1",
-					Function: func() bubo.Agent {
+					Function: func() bubo.Owl {
 						executionOrder = append(executionOrder, "agent_tool1")
 						return nextTestAgent1
 					},
 				},
 				{
 					Name: "agent_tool2",
-					Function: func() bubo.Agent {
+					Function: func() bubo.Owl {
 						executionOrder = append(executionOrder, "agent_tool2")
 						return nextTestAgent2
 					},
@@ -584,7 +585,7 @@ func TestHandleToolCalls(t *testing.T) {
 		params := toolCallParams[any]{
 			runID: runID,
 			agent: agent,
-			mem:   runstate.NewAggregator(),
+			mem:   shorttermmemory.NewAggregator(),
 			toolCalls: messages.ToolCallMessage{
 				ToolCalls: []messages.ToolCallData{
 					{
@@ -616,13 +617,13 @@ func (m *mockSubscription) Unsubscribe() {}
 type mockTopic[T any] struct {
 	pubsub.Topic[T]
 	mu         sync.RWMutex
-	published  []pubsub.Event
-	hook       pubsub.Hook[T]
-	eventsChan chan pubsub.Event
-	subscribe  func(ctx context.Context, hook pubsub.Hook[T]) (pubsub.Subscription, error)
+	published  []events.Event
+	hook       events.Hook[T]
+	eventsChan chan events.Event
+	subscribe  func(ctx context.Context, hook events.Hook[T]) (pubsub.Subscription, error)
 }
 
-func (m *mockTopic[T]) Publish(ctx context.Context, event pubsub.Event) error {
+func (m *mockTopic[T]) Publish(ctx context.Context, event events.Event) error {
 	m.mu.Lock()
 	m.published = append(m.published, event)
 	m.mu.Unlock()
@@ -634,7 +635,7 @@ func (m *mockTopic[T]) Publish(ctx context.Context, event pubsub.Event) error {
 	return nil
 }
 
-func (m *mockTopic[T]) Subscribe(ctx context.Context, hook pubsub.Hook[T]) (pubsub.Subscription, error) {
+func (m *mockTopic[T]) Subscribe(ctx context.Context, hook events.Hook[T]) (pubsub.Subscription, error) {
 	if m.subscribe != nil {
 		return m.subscribe(ctx, hook)
 	}
@@ -645,11 +646,11 @@ func (m *mockTopic[T]) Subscribe(ctx context.Context, hook pubsub.Hook[T]) (pubs
 }
 
 // waitForEvent waits for an event that matches the given predicate
-func (m *mockTopic[T]) waitForEvent(timeout time.Duration, predicate func(pubsub.Event) bool) (pubsub.Event, error) {
+func (m *mockTopic[T]) waitForEvent(timeout time.Duration, predicate func(events.Event) bool) (events.Event, error) {
 	// Initialize channel if needed
 	m.mu.Lock()
 	if m.eventsChan == nil {
-		m.eventsChan = make(chan pubsub.Event, 100)
+		m.eventsChan = make(chan events.Event, 100)
 	}
 	m.mu.Unlock()
 
@@ -709,14 +710,14 @@ func (m *mockBroker[T]) Topic(_ context.Context, id string) pubsub.Topic[T] {
 	}
 
 	t = &mockTopic[T]{
-		eventsChan: make(chan pubsub.Event, 100),
+		eventsChan: make(chan events.Event, 100),
 	}
 	m.topics[id] = t
 	return t
 }
 
 // Helper function to wait for a specific event type and optionally validate its content
-func (m *mockBroker[T]) waitForEvent(id string, timeout time.Duration, predicate func(pubsub.Event) bool) (pubsub.Event, error) {
+func (m *mockBroker[T]) waitForEvent(id string, timeout time.Duration, predicate func(events.Event) bool) (events.Event, error) {
 	topic, ok := m.topics[id]
 	if !ok {
 		return nil, fmt.Errorf("topic %s not found", id)
@@ -752,7 +753,7 @@ func TestRun(t *testing.T) {
 		local := NewLocal[string](broker)
 
 		agent := newTestAgent()
-		thread := runstate.NewAggregator()
+		thread := shorttermmemory.NewAggregator()
 		hook := &mockHook[string]{}
 
 		prov := &mockProvider{
@@ -775,8 +776,8 @@ func TestRun(t *testing.T) {
 		require.NoError(t, err)
 
 		// Wait for completion to ensure ChatCompletion was called
-		_, err = broker.waitForEvent(cmd.ID.String(), time.Second, func(e pubsub.Event) bool {
-			_, ok := e.(pubsub.Result[string])
+		_, err = broker.waitForEvent(cmd.ID.String(), time.Second, func(e events.Event) bool {
+			_, ok := e.(events.Result[string])
 			return ok
 		})
 		require.NoError(t, err)
@@ -791,7 +792,7 @@ func TestRun(t *testing.T) {
 		local := NewLocal[string](broker)
 
 		agent := newTestAgent()
-		thread := runstate.NewAggregator()
+		thread := shorttermmemory.NewAggregator()
 		hook := &mockHook[string]{}
 
 		mockResp := provider.Response[messages.AssistantMessage]{
@@ -814,13 +815,13 @@ func TestRun(t *testing.T) {
 		require.NoError(t, err)
 
 		// Wait for final response
-		event, err := broker.waitForEvent(cmd.ID.String(), time.Second, func(e pubsub.Event) bool {
-			_, ok := e.(pubsub.Result[string])
+		event, err := broker.waitForEvent(cmd.ID.String(), time.Second, func(e events.Event) bool {
+			_, ok := e.(events.Result[string])
 			return ok
 		})
 		require.NoError(t, err)
 
-		resp := event.(pubsub.Result[string])
+		resp := event.(events.Result[string])
 		assert.Equal(t, "test result", resp.Result)
 	})
 
@@ -829,7 +830,7 @@ func TestRun(t *testing.T) {
 		local := NewLocal[string](broker)
 
 		agent := newTestAgent()
-		thread := runstate.NewAggregator()
+		thread := shorttermmemory.NewAggregator()
 		hook := &mockHook[string]{}
 
 		prov := &mockProvider{
@@ -844,13 +845,13 @@ func TestRun(t *testing.T) {
 		require.NoError(t, err)
 
 		// Wait for error event
-		event, err := broker.waitForEvent(cmd.ID.String(), time.Second, func(e pubsub.Event) bool {
-			_, ok := e.(pubsub.Error)
+		event, err := broker.waitForEvent(cmd.ID.String(), time.Second, func(e events.Event) bool {
+			_, ok := e.(events.Error)
 			return ok
 		})
 		require.NoError(t, err)
 
-		errEvent := event.(pubsub.Error)
+		errEvent := event.(events.Error)
 		assert.Contains(t, errEvent.Err.Error(), "provider error")
 	})
 
@@ -872,7 +873,7 @@ func TestRun(t *testing.T) {
 				return "", fmt.Errorf("failed to render instructions")
 			},
 		}
-		thread := runstate.NewAggregator()
+		thread := shorttermmemory.NewAggregator()
 		hook := &mockHook[string]{}
 
 		cmd, err := NewRunCommand[string](agent, thread, hook)
@@ -882,13 +883,13 @@ func TestRun(t *testing.T) {
 		require.NoError(t, err)
 
 		// Wait for error event
-		event, err := broker.waitForEvent(cmd.ID.String(), time.Second, func(e pubsub.Event) bool {
-			_, ok := e.(pubsub.Error)
+		event, err := broker.waitForEvent(cmd.ID.String(), time.Second, func(e events.Event) bool {
+			_, ok := e.(events.Error)
 			return ok
 		})
 		require.NoError(t, err)
 
-		errEvent := event.(pubsub.Error)
+		errEvent := event.(events.Error)
 		assert.Contains(t, errEvent.Err.Error(), "failed to render instructions")
 	})
 
@@ -897,7 +898,7 @@ func TestRun(t *testing.T) {
 		local := NewLocal[string](broker)
 
 		agent := newTestAgent()
-		thread := runstate.NewAggregator()
+		thread := shorttermmemory.NewAggregator()
 		hook := &mockHook[string]{}
 
 		toolCallResp := provider.Response[messages.ToolCallMessage]{
@@ -931,16 +932,16 @@ func TestRun(t *testing.T) {
 		require.NoError(t, err)
 
 		// Wait for tool call event
-		toolCallEvent, err := broker.waitForEvent(cmd.ID.String(), time.Second, func(e pubsub.Event) bool {
-			_, ok := e.(pubsub.Response[messages.ToolCallMessage])
+		toolCallEvent, err := broker.waitForEvent(cmd.ID.String(), time.Second, func(e events.Event) bool {
+			_, ok := e.(events.Response[messages.ToolCallMessage])
 			return ok
 		})
 		require.NoError(t, err)
 		require.NotNil(t, toolCallEvent)
 
 		// Wait for tool response
-		toolResponseEvent, err := broker.waitForEvent(cmd.ID.String(), time.Second, func(e pubsub.Event) bool {
-			if resp, ok := e.(pubsub.Request[messages.ToolResponse]); ok {
+		toolResponseEvent, err := broker.waitForEvent(cmd.ID.String(), time.Second, func(e events.Event) bool {
+			if resp, ok := e.(events.Request[messages.ToolResponse]); ok {
 				return resp.Message.Content == "result"
 			}
 			return false
@@ -949,8 +950,8 @@ func TestRun(t *testing.T) {
 		require.NotNil(t, toolResponseEvent)
 
 		// Wait for final response
-		finalEvent, err := broker.waitForEvent(cmd.ID.String(), time.Second, func(e pubsub.Event) bool {
-			if resp, ok := e.(pubsub.Result[string]); ok {
+		finalEvent, err := broker.waitForEvent(cmd.ID.String(), time.Second, func(e events.Event) bool {
+			if resp, ok := e.(events.Result[string]); ok {
 				return resp.Result == "test result"
 			}
 			return false
@@ -964,7 +965,7 @@ func TestRun(t *testing.T) {
 		local := NewLocal[string](broker)
 
 		agent := newTestAgent()
-		thread := runstate.NewAggregator()
+		thread := shorttermmemory.NewAggregator()
 		hook := &mockHook[string]{}
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1003,7 +1004,7 @@ func TestRun(t *testing.T) {
 			},
 		}
 
-		thread := runstate.NewAggregator()
+		thread := shorttermmemory.NewAggregator()
 		hook := &mockHook[string]{}
 
 		toolCallResp := provider.Response[messages.ToolCallMessage]{
@@ -1027,8 +1028,8 @@ func TestRun(t *testing.T) {
 		require.NoError(t, err)
 
 		// Wait for error event
-		event, err := broker.waitForEvent(cmd.ID.String(), time.Second, func(e pubsub.Event) bool {
-			if errEvent, ok := e.(pubsub.Error); ok {
+		event, err := broker.waitForEvent(cmd.ID.String(), time.Second, func(e events.Event) bool {
+			if errEvent, ok := e.(events.Error); ok {
 				return strings.Contains(errEvent.Err.Error(), "tool error")
 			}
 			return false
@@ -1040,13 +1041,13 @@ func TestRun(t *testing.T) {
 	t.Run("nil subscription error", func(t *testing.T) {
 		broker := newMockBroker[string]()
 		topic := &mockTopic[string]{
-			eventsChan: make(chan pubsub.Event, 100),
-			subscribe: func(ctx context.Context, hook pubsub.Hook[string]) (pubsub.Subscription, error) {
+			eventsChan: make(chan events.Event, 100),
+			subscribe: func(ctx context.Context, hook events.Hook[string]) (pubsub.Subscription, error) {
 				return nil, nil
 			},
 		}
 
-		cmd, err := NewRunCommand[string](newTestAgent(), runstate.NewAggregator(), &mockHook[string]{})
+		cmd, err := NewRunCommand[string](newTestAgent(), shorttermmemory.NewAggregator(), &mockHook[string]{})
 		require.NoError(t, err)
 
 		broker.topics = map[string]*mockTopic[string]{
@@ -1095,7 +1096,7 @@ func TestRun(t *testing.T) {
 			},
 		}
 
-		thread := runstate.NewAggregator()
+		thread := shorttermmemory.NewAggregator()
 		hook := &mockHook[string]{}
 
 		toolCallResp := provider.Response[messages.ToolCallMessage]{
@@ -1123,8 +1124,8 @@ func TestRun(t *testing.T) {
 		var foundValue bool
 		deadline := time.Now().Add(time.Second)
 		for time.Now().Before(deadline) && !foundValue {
-			event, err := broker.waitForEvent(cmd.ID.String(), 100*time.Millisecond, func(e pubsub.Event) bool {
-				if resp, ok := e.(pubsub.Request[messages.ToolResponse]); ok {
+			event, err := broker.waitForEvent(cmd.ID.String(), 100*time.Millisecond, func(e events.Event) bool {
+				if resp, ok := e.(events.Request[messages.ToolResponse]); ok {
 					if resp.Message.Content == "value" {
 						foundValue = true
 						return true
@@ -1144,7 +1145,7 @@ func TestRun(t *testing.T) {
 		local := NewLocal[string](broker)
 
 		agent := newTestAgent()
-		thread := runstate.NewAggregator()
+		thread := shorttermmemory.NewAggregator()
 		hook := &mockHook[string]{}
 
 		cmd, err := NewRunCommand[string](agent, thread, hook)
@@ -1183,7 +1184,7 @@ func TestHandleToolCallsErrors(t *testing.T) {
 	params := toolCallParams[any]{
 		runID: runID,
 		agent: newTestAgent(),
-		mem:   runstate.NewAggregator(),
+		mem:   shorttermmemory.NewAggregator(),
 		toolCalls: messages.ToolCallMessage{
 			ToolCalls: []messages.ToolCallData{
 				{
@@ -1220,7 +1221,7 @@ func TestHandleToolCallsWithContextVars(t *testing.T) {
 		runID:       runID,
 		agent:       agent,
 		contextVars: contextVars,
-		mem:         runstate.NewAggregator(),
+		mem:         shorttermmemory.NewAggregator(),
 		toolCalls: messages.ToolCallMessage{
 			ToolCalls: []messages.ToolCallData{
 				{
@@ -1237,8 +1238,8 @@ func TestHandleToolCallsWithContextVars(t *testing.T) {
 	assert.Nil(t, nextAgent)
 
 	// Wait for tool response
-	event, err := broker.waitForEvent(runID.String(), time.Second, func(e pubsub.Event) bool {
-		if resp, ok := e.(pubsub.Request[messages.ToolResponse]); ok {
+	event, err := broker.waitForEvent(runID.String(), time.Second, func(e events.Event) bool {
+		if resp, ok := e.(events.Request[messages.ToolResponse]); ok {
 			return resp.Message.Content == "value"
 		}
 		return false
@@ -1258,7 +1259,7 @@ func TestHandleToolCallsWithAgentReturn(t *testing.T) {
 	agent.testTools = []bubo.AgentToolDefinition{
 		{
 			Name: "agent_tool",
-			Function: func() bubo.Agent {
+			Function: func() bubo.Owl {
 				return nextTestAgent
 			},
 		},
@@ -1268,7 +1269,7 @@ func TestHandleToolCallsWithAgentReturn(t *testing.T) {
 	params := toolCallParams[any]{
 		runID: runID,
 		agent: agent,
-		mem:   runstate.NewAggregator(),
+		mem:   shorttermmemory.NewAggregator(),
 		toolCalls: messages.ToolCallMessage{
 			ToolCalls: []messages.ToolCallData{
 				{
@@ -1294,7 +1295,7 @@ func TestHandleToolCallsWithInvalidJSON(t *testing.T) {
 	params := toolCallParams[any]{
 		runID: runID,
 		agent: agent,
-		mem:   runstate.NewAggregator(),
+		mem:   shorttermmemory.NewAggregator(),
 		toolCalls: messages.ToolCallMessage{
 			ToolCalls: []messages.ToolCallData{
 				{
@@ -1334,14 +1335,14 @@ func TestHandleToolCallsWithMixedTools(t *testing.T) {
 		testTools: []bubo.AgentToolDefinition{
 			{
 				Name: "b_agent_tool", // Deliberately named to test order preservation
-				Function: func() bubo.Agent {
+				Function: func() bubo.Owl {
 					executionOrder = append(executionOrder, "b_agent_tool")
 					return newTestAgent()
 				},
 			},
 			{
 				Name: "a_agent_tool", // Deliberately named to test order preservation
-				Function: func() bubo.Agent {
+				Function: func() bubo.Owl {
 					executionOrder = append(executionOrder, "a_agent_tool")
 					return newTestAgent()
 				},
@@ -1377,7 +1378,7 @@ func TestHandleToolCallsWithMixedTools(t *testing.T) {
 		params := toolCallParams[any]{
 			runID: runID,
 			agent: agent,
-			mem:   runstate.NewAggregator(),
+			mem:   shorttermmemory.NewAggregator(),
 			toolCalls: messages.ToolCallMessage{
 				ToolCalls: []messages.ToolCallData{
 					{
@@ -1408,7 +1409,7 @@ func TestHandleToolCallsWithMixedTools(t *testing.T) {
 		params := toolCallParams[any]{
 			runID: runID,
 			agent: agent,
-			mem:   runstate.NewAggregator(),
+			mem:   shorttermmemory.NewAggregator(),
 			toolCalls: messages.ToolCallMessage{
 				ToolCalls: []messages.ToolCallData{
 					{
@@ -1440,7 +1441,7 @@ func TestHandleToolCallsWithMixedTools(t *testing.T) {
 		params := toolCallParams[any]{
 			runID: runID,
 			agent: agent,
-			mem:   runstate.NewAggregator(),
+			mem:   shorttermmemory.NewAggregator(),
 			toolCalls: messages.ToolCallMessage{
 				ToolCalls: []messages.ToolCallData{
 					{
@@ -1520,7 +1521,7 @@ func TestHandleToolCallsContextPropagation(t *testing.T) {
 	params := toolCallParams[any]{
 		runID: runID,
 		agent: agent,
-		mem:   runstate.NewAggregator(),
+		mem:   shorttermmemory.NewAggregator(),
 		toolCalls: messages.ToolCallMessage{
 			ToolCalls: []messages.ToolCallData{
 				{

@@ -1,4 +1,4 @@
-package pubsub
+package broker
 
 import (
 	"context"
@@ -8,7 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/casualjim/bubo/pkg/messages"
+	"github.com/casualjim/bubo/events"
+	"github.com/casualjim/bubo/messages"
 	"github.com/casualjim/bubo/provider"
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -130,14 +131,14 @@ func (h *overflowHook) OnAssistantMessage(ctx context.Context, msg messages.Mess
 
 func TestBroker(t *testing.T) {
 	t.Run("creates unique topics", func(t *testing.T) {
-		broker := LocalBroker[any]()
+		broker := Local[any]()
 		topic1 := broker.Topic(context.Background(), "test1")
 		topic2 := broker.Topic(context.Background(), "test2")
 		assert.NotEqual(t, topic1, topic2)
 	})
 
 	t.Run("reuses existing topics", func(t *testing.T) {
-		broker := LocalBroker[any]()
+		broker := Local[any]()
 		topic1 := broker.Topic(context.Background(), "test")
 		topic2 := broker.Topic(context.Background(), "test")
 		assert.Equal(t, topic1, topic2)
@@ -146,7 +147,7 @@ func TestBroker(t *testing.T) {
 
 func TestTopic(t *testing.T) {
 	t.Run("publishes events to all subscribers", func(t *testing.T) {
-		broker := LocalBroker[any]().(*broker[any])
+		broker := Local[any]().(*localBroker[any])
 		broker = broker.WithSlowSubscriberTimeout(1 * time.Millisecond) // Very short timeout for testing
 		topic := broker.Topic(context.Background(), "test")
 
@@ -178,7 +179,7 @@ func TestTopic(t *testing.T) {
 		// Test AssistantMessage
 		wg.Add(4) // 2 recorders * 2 messages
 		msg := messages.New().AssistantMessage("test message")
-		event1 := Response[messages.AssistantMessage]{
+		event1 := events.Response[messages.AssistantMessage]{
 			RunID:     runID,
 			TurnID:    turnID,
 			Response:  msg.Payload,
@@ -195,7 +196,7 @@ func TestTopic(t *testing.T) {
 			Name:      "test-tool",
 			Arguments: `{"arg":"value"}`,
 		}})
-		event2 := Response[messages.ToolCallMessage]{
+		event2 := events.Response[messages.ToolCallMessage]{
 			RunID:     runID,
 			TurnID:    turnID,
 			Response:  msg2.Payload,
@@ -233,7 +234,7 @@ func TestTopic(t *testing.T) {
 	})
 
 	t.Run("handles channel overflow", func(t *testing.T) {
-		broker := LocalBroker[any]().(*broker[any])
+		broker := Local[any]().(*localBroker[any])
 		broker = broker.WithSlowSubscriberTimeout(50 * time.Millisecond) // Give enough time for test setup
 		topic := broker.Topic(context.Background(), "test")
 		ctx := context.Background()
@@ -260,7 +261,7 @@ func TestTopic(t *testing.T) {
 		const numEvents = bufferSize * 2 // Double the buffer size to ensure overflow
 		for i := 0; i < numEvents; i++ {
 			msg := messages.New().AssistantMessage(fmt.Sprintf("message-%d", i))
-			event := Response[messages.AssistantMessage]{
+			event := events.Response[messages.AssistantMessage]{
 				RunID:    uuid.New(),
 				TurnID:   uuid.New(),
 				Response: msg.Payload,
@@ -286,7 +287,7 @@ func TestTopic(t *testing.T) {
 	})
 
 	t.Run("respects publish context cancellation", func(t *testing.T) {
-		broker := LocalBroker[any]()
+		broker := Local[any]()
 		topic := broker.Topic(context.Background(), "test")
 
 		// Create a subscriber
@@ -304,7 +305,7 @@ func TestTopic(t *testing.T) {
 
 		// Publish event with cancelled context
 		msg := messages.New().AssistantMessage("test message")
-		event := Response[messages.AssistantMessage]{
+		event := events.Response[messages.AssistantMessage]{
 			RunID:    uuid.New(),
 			TurnID:   uuid.New(),
 			Response: msg.Payload,
@@ -322,7 +323,7 @@ func TestTopic(t *testing.T) {
 	})
 
 	t.Run("handles context cancellation", func(t *testing.T) {
-		broker := LocalBroker[any]()
+		broker := Local[any]()
 		topic := broker.Topic(context.Background(), "test")
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -342,7 +343,7 @@ func TestTopic(t *testing.T) {
 
 		// Publish event after cancellation
 		msg := messages.New().AssistantMessage("test message")
-		event := Response[messages.AssistantMessage]{
+		event := events.Response[messages.AssistantMessage]{
 			RunID:    uuid.New(),
 			TurnID:   uuid.New(),
 			Response: msg.Payload,
@@ -357,7 +358,7 @@ func TestTopic(t *testing.T) {
 	})
 
 	t.Run("handles unsubscribe", func(t *testing.T) {
-		broker := LocalBroker[any]()
+		broker := Local[any]()
 		topic := broker.Topic(context.Background(), "test")
 
 		ctx := context.Background()
@@ -376,7 +377,7 @@ func TestTopic(t *testing.T) {
 
 		// Publish event after unsubscribe
 		msg := messages.New().AssistantMessage("test message")
-		event := Response[messages.AssistantMessage]{
+		event := events.Response[messages.AssistantMessage]{
 			RunID:    uuid.New(),
 			TurnID:   uuid.New(),
 			Response: msg.Payload,
@@ -391,7 +392,7 @@ func TestTopic(t *testing.T) {
 	})
 
 	t.Run("handles concurrent operations", func(t *testing.T) {
-		broker := LocalBroker[any]()
+		broker := Local[any]()
 		topic := broker.Topic(context.Background(), "test")
 		ctx := context.Background()
 
@@ -428,7 +429,7 @@ func TestTopic(t *testing.T) {
 			go func(i int) {
 				defer publishWg.Done()
 				msg := messages.New().AssistantMessage(fmt.Sprintf("message-%d", i))
-				event := Response[messages.AssistantMessage]{
+				event := events.Response[messages.AssistantMessage]{
 					RunID:    uuid.New(),
 					TurnID:   uuid.New(),
 					Response: msg.Payload,
@@ -463,8 +464,8 @@ func TestFromStreamEvent(t *testing.T) {
 			TurnID: turnID,
 			Delim:  "test",
 		}
-		event := FromStreamEvent(streamEvent, "")
-		delim, ok := event.(Delim)
+		event := events.FromStreamEvent(streamEvent, "")
+		delim, ok := event.(events.Delim)
 		require.True(t, ok)
 		assert.Equal(t, streamEvent.RunID, delim.RunID)
 		assert.Equal(t, streamEvent.TurnID, delim.TurnID)
@@ -480,8 +481,8 @@ func TestFromStreamEvent(t *testing.T) {
 			Timestamp: timestamp,
 			Meta:      meta,
 		}
-		event := FromStreamEvent(streamEvent, "test")
-		chunk, ok := event.(Chunk[messages.AssistantMessage])
+		event := events.FromStreamEvent(streamEvent, "test")
+		chunk, ok := event.(events.Chunk[messages.AssistantMessage])
 		require.True(t, ok)
 		assert.Equal(t, streamEvent.RunID, chunk.RunID)
 		assert.Equal(t, streamEvent.TurnID, chunk.TurnID)
@@ -504,8 +505,8 @@ func TestFromStreamEvent(t *testing.T) {
 			Timestamp: timestamp,
 			Meta:      meta,
 		}
-		event := FromStreamEvent(streamEvent, "test")
-		chunk, ok := event.(Chunk[messages.ToolCallMessage])
+		event := events.FromStreamEvent(streamEvent, "test")
+		chunk, ok := event.(events.Chunk[messages.ToolCallMessage])
 		require.True(t, ok)
 		assert.Equal(t, streamEvent.RunID, chunk.RunID)
 		assert.Equal(t, streamEvent.TurnID, chunk.TurnID)
@@ -524,8 +525,8 @@ func TestFromStreamEvent(t *testing.T) {
 			Timestamp: timestamp,
 			Meta:      meta,
 		}
-		event := FromStreamEvent(streamEvent, "test")
-		response, ok := event.(Response[messages.AssistantMessage])
+		event := events.FromStreamEvent(streamEvent, "test")
+		response, ok := event.(events.Response[messages.AssistantMessage])
 		require.True(t, ok)
 		assert.Equal(t, streamEvent.RunID, response.RunID)
 		assert.Equal(t, streamEvent.TurnID, response.TurnID)
@@ -548,8 +549,8 @@ func TestFromStreamEvent(t *testing.T) {
 			Timestamp: timestamp,
 			Meta:      meta,
 		}
-		event := FromStreamEvent(streamEvent, "test")
-		response, ok := event.(Response[messages.ToolCallMessage])
+		event := events.FromStreamEvent(streamEvent, "test")
+		response, ok := event.(events.Response[messages.ToolCallMessage])
 		require.True(t, ok)
 		assert.Equal(t, streamEvent.RunID, response.RunID)
 		assert.Equal(t, streamEvent.TurnID, response.TurnID)
@@ -568,8 +569,8 @@ func TestFromStreamEvent(t *testing.T) {
 			Timestamp: timestamp,
 			Meta:      meta,
 		}
-		event := FromStreamEvent(streamEvent, "test")
-		errorEvent, ok := event.(Error)
+		event := events.FromStreamEvent(streamEvent, "test")
+		errorEvent, ok := event.(events.Error)
 		require.True(t, ok)
 		assert.Equal(t, streamEvent.RunID, errorEvent.RunID)
 		assert.Equal(t, streamEvent.TurnID, errorEvent.TurnID)
@@ -585,7 +586,7 @@ func TestFromStreamEvent(t *testing.T) {
 			Extra          string // add an extra field to make it a different type
 		}
 		assert.Panics(t, func() {
-			FromStreamEvent(unknownEvent{}, "")
+			events.FromStreamEvent(unknownEvent{}, "")
 		})
 	})
 }

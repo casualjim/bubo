@@ -1,12 +1,12 @@
-// Package runstate provides functionality for managing the runtime state of message processing,
+// Package shorttermmemory provides functionality for managing the runtime state of message processing,
 // including message aggregation, forking, and joining of message streams, as well as usage tracking.
-package runstate
+package shorttermmemory
 
 import (
 	"iter"
 	"slices"
 
-	"github.com/casualjim/bubo/pkg/messages"
+	"github.com/casualjim/bubo/messages"
 	"github.com/casualjim/bubo/pkg/uuidx"
 	"github.com/goccy/go-json"
 	"github.com/google/uuid"

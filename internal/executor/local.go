@@ -13,10 +13,11 @@ import (
 	"time"
 
 	"github.com/casualjim/bubo"
-	"github.com/casualjim/bubo/executor/pubsub"
-	"github.com/casualjim/bubo/pkg/messages"
+	"github.com/casualjim/bubo/events"
+	pubsub "github.com/casualjim/bubo/internal/broker"
+	"github.com/casualjim/bubo/internal/shorttermmemory"
+	"github.com/casualjim/bubo/messages"
 	"github.com/casualjim/bubo/pkg/reflectx"
-	"github.com/casualjim/bubo/pkg/runstate"
 	"github.com/casualjim/bubo/pkg/slogx"
 	"github.com/casualjim/bubo/provider"
 	"github.com/casualjim/bubo/types"
@@ -55,15 +56,15 @@ func (l *Local[T]) Run(ctx context.Context, command RunCommand[T]) error {
 	}
 
 	topic := l.broker.Topic(ctx, command.ID.String())
-	events, err := topic.Subscribe(context.Background(), command.Hook)
+	evts, err := topic.Subscribe(context.Background(), command.Hook)
 	if err != nil {
 		return fmt.Errorf("failed to subscribe to topic: %w", err)
 	}
-	if events == nil {
+	if evts == nil {
 		return fmt.Errorf("received nil subscription from topic")
 	}
 	go func() {
-		defer events.Unsubscribe()
+		defer evts.Unsubscribe()
 
 		var contextVars types.ContextVars
 		if command.ContextVariables != nil {
@@ -137,7 +138,7 @@ func (l *Local[T]) Run(ctx context.Context, command RunCommand[T]) error {
 										slog.ErrorContext(ctx, "failed to unmarshal response value", slogx.Error(perr))
 									}
 								}
-								if perr := topic.Publish(ctx, pubsub.Result[T]{
+								if perr := topic.Publish(ctx, events.Result[T]{
 									RunID:     command.ID,
 									TurnID:    thread.ID(),
 									Result:    value,
@@ -157,23 +158,23 @@ func (l *Local[T]) Run(ctx context.Context, command RunCommand[T]) error {
 					switch event := event.(type) {
 					case provider.Delim:
 					case provider.Error:
-						if perr := topic.Publish(ctx, pubsub.FromStreamEvent(event, activeAgent.Name())); perr != nil {
+						if perr := topic.Publish(ctx, events.FromStreamEvent(event, activeAgent.Name())); perr != nil {
 							slog.ErrorContext(ctx, "failed to publish error event", slogx.Error(perr))
 						}
 						return
 					case provider.Chunk[messages.AssistantMessage]:
-						if perr := topic.Publish(ctx, pubsub.FromStreamEvent(event, activeAgent.Name())); perr != nil {
+						if perr := topic.Publish(ctx, events.FromStreamEvent(event, activeAgent.Name())); perr != nil {
 							slog.ErrorContext(ctx, "failed to publish chunk event", slogx.Error(perr))
 						}
 
 					case provider.Chunk[messages.ToolCallMessage]:
-						if perr := topic.Publish(ctx, pubsub.FromStreamEvent(event, activeAgent.Name())); perr != nil {
+						if perr := topic.Publish(ctx, events.FromStreamEvent(event, activeAgent.Name())); perr != nil {
 							slog.ErrorContext(ctx, "failed to publish chunk event", slogx.Error(perr))
 						}
 
 					case provider.Response[messages.ToolCallMessage]:
 						event.Checkpoint.MergeInto(thread)
-						if perr := topic.Publish(ctx, pubsub.FromStreamEvent(event, activeAgent.Name())); perr != nil {
+						if perr := topic.Publish(ctx, events.FromStreamEvent(event, activeAgent.Name())); perr != nil {
 							slog.ErrorContext(ctx, "failed to publish response event", slogx.Error(perr))
 						}
 
@@ -204,7 +205,7 @@ func (l *Local[T]) Run(ctx context.Context, command RunCommand[T]) error {
 							Timestamp: strfmt.DateTime(time.Now()),
 						})
 
-						if perr := topic.Publish(ctx, pubsub.FromStreamEvent(event, activeAgent.Name())); perr != nil {
+						if perr := topic.Publish(ctx, events.FromStreamEvent(event, activeAgent.Name())); perr != nil {
 							slog.ErrorContext(ctx, "failed to publish response event", slogx.Error(perr))
 						}
 
@@ -220,7 +221,7 @@ func (l *Local[T]) Run(ctx context.Context, command RunCommand[T]) error {
 							}
 							continue
 						}
-						if perr := topic.Publish(ctx, pubsub.Result[T]{
+						if perr := topic.Publish(ctx, events.Result[T]{
 							RunID:     command.ID,
 							TurnID:    thread.ID(),
 							Result:    value,
@@ -245,14 +246,14 @@ func (l *Local[T]) Run(ctx context.Context, command RunCommand[T]) error {
 	return nil
 }
 
-func wrapErr(runID, turnID uuid.UUID, sender string, err error) (pubsub.Error, bool) {
+func wrapErr(runID, turnID uuid.UUID, sender string, err error) (events.Error, bool) {
 	if err == nil {
-		return pubsub.Error{}, false
+		return events.Error{}, false
 	}
-	if pErr, ok := err.(pubsub.Error); ok { //nolint: errorlint
+	if pErr, ok := err.(events.Error); ok { //nolint: errorlint
 		return pErr, true
 	}
-	return pubsub.Error{
+	return events.Error{
 		RunID:     runID,
 		TurnID:    turnID,
 		Sender:    sender,
@@ -263,14 +264,14 @@ func wrapErr(runID, turnID uuid.UUID, sender string, err error) (pubsub.Error, b
 
 type toolCallParams[T any] struct {
 	runID       uuid.UUID
-	agent       bubo.Agent
+	agent       bubo.Owl
 	contextVars types.ContextVars
-	mem         *runstate.Aggregator
+	mem         *shorttermmemory.Aggregator
 	toolCalls   messages.ToolCallMessage
 	topic       pubsub.Topic[T]
 }
 
-func (l *Local[T]) handleToolCalls(ctx context.Context, params toolCallParams[T]) (bubo.Agent, error) {
+func (l *Local[T]) handleToolCalls(ctx context.Context, params toolCallParams[T]) (bubo.Owl, error) {
 	agentTools := make(map[string]bubo.AgentToolDefinition, len(params.agent.Tools()))
 	for tool := range slices.Values(params.agent.Tools()) {
 		agentTools[tool.Name] = tool
@@ -290,7 +291,7 @@ func (l *Local[T]) handleToolCalls(ctx context.Context, params toolCallParams[T]
 	for i, call := range params.toolCalls.ToolCalls {
 		tool, exists := agentTools[call.Name]
 		if !exists {
-			return nil, pubsub.Error{
+			return nil, events.Error{
 				RunID:     params.runID,
 				TurnID:    params.mem.ID(),
 				Sender:    params.agent.Name(),
@@ -300,7 +301,7 @@ func (l *Local[T]) handleToolCalls(ctx context.Context, params toolCallParams[T]
 		}
 
 		// Check if tool returns an Agent by examining its return type
-		if reflect.TypeOf(tool.Function).Out(0) == reflect.TypeOf((*bubo.Agent)(nil)).Elem() {
+		if reflect.TypeOf(tool.Function).Out(0) == reflect.TypeOf((*bubo.Owl)(nil)).Elem() {
 			agentCalls = append(agentCalls, struct {
 				index int
 				call  messages.ToolCallData
@@ -335,7 +336,7 @@ func (l *Local[T]) handleToolCalls(ctx context.Context, params toolCallParams[T]
 		args := buildArgList(item.call.Arguments, tool.Parameters)
 		result, err := callFunction(tool.Function, args, contextVars)
 		if err != nil {
-			return nil, pubsub.Error{
+			return nil, events.Error{
 				RunID:     params.runID,
 				TurnID:    params.mem.ID(),
 				Sender:    params.agent.Name(),
@@ -371,7 +372,7 @@ func (l *Local[T]) handleToolCalls(ctx context.Context, params toolCallParams[T]
 		}
 
 		// Publish tool response
-		perr := params.topic.Publish(ctx, pubsub.Request[messages.ToolResponse]{
+		perr := params.topic.Publish(ctx, events.Request[messages.ToolResponse]{
 			RunID:  params.runID,
 			TurnID: params.mem.ID(),
 			Message: messages.ToolResponse{
@@ -397,7 +398,7 @@ func (l *Local[T]) handleToolCalls(ctx context.Context, params toolCallParams[T]
 		args := buildArgList(item.call.Arguments, tool.Parameters)
 		result, err := callFunction(tool.Function, args, contextVars)
 		if err != nil {
-			return nil, pubsub.Error{
+			return nil, events.Error{
 				RunID:     params.runID,
 				TurnID:    params.mem.ID(),
 				Sender:    params.agent.Name(),
@@ -433,7 +434,7 @@ func (l *Local[T]) handleToolCalls(ctx context.Context, params toolCallParams[T]
 		}
 
 		// Publish tool response
-		perr := params.topic.Publish(ctx, pubsub.Request[messages.ToolResponse]{
+		perr := params.topic.Publish(ctx, events.Request[messages.ToolResponse]{
 			RunID:  params.runID,
 			TurnID: params.mem.ID(),
 			Message: messages.ToolResponse{
@@ -486,7 +487,7 @@ func buildArgList(arguments string, parameters map[string]string) []reflect.Valu
 
 type result struct {
 	Value            string
-	Agent            bubo.Agent
+	Agent            bubo.Owl
 	ContextVariables types.ContextVars
 }
 
@@ -520,7 +521,7 @@ func callFunction(fn any, args []reflect.Value, contextVars types.ContextVars) (
 	}
 
 	switch vtpe := res.Interface().(type) {
-	case bubo.Agent:
+	case bubo.Owl:
 		return result{Value: fmt.Sprintf(`{"assistant":%q}`, vtpe.Name()), Agent: vtpe}, nil
 	case error:
 		return result{}, vtpe

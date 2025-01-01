@@ -1,10 +1,10 @@
-package runstate
+package shorttermmemory
 
 import (
 	"testing"
 	"time"
 
-	"github.com/casualjim/bubo/pkg/messages"
+	"github.com/casualjim/bubo/messages"
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"

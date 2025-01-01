@@ -1,11 +1,11 @@
-package pubsub
+package events
 
 import (
 	"context"
 	"fmt"
 	"testing"
 
-	"github.com/casualjim/bubo/pkg/messages"
+	"github.com/casualjim/bubo/messages"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

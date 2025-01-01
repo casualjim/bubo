@@ -1,14 +1,13 @@
-package pubsub
+package events
 
 import (
-	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
-	"github.com/casualjim/bubo/pkg/messages"
+	"github.com/casualjim/bubo/messages"
 	"github.com/casualjim/bubo/provider"
 	"github.com/go-openapi/strfmt"
-	json "github.com/goccy/go-json"
 	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -21,20 +20,6 @@ var (
 	responseJSON = []byte(`{"type":"response"}`)
 	errorJSON    = []byte(`{"type":"error"}`)
 )
-
-type Broker[T any] interface {
-	Topic(context.Context, string) Topic[T]
-}
-
-type Topic[T any] interface {
-	Publish(context.Context, Event) error
-	Subscribe(context.Context, Hook[T]) (Subscription, error)
-}
-
-type Subscription interface {
-	ID() string
-	Unsubscribe()
-}
 
 type Event interface {
 	pubsubEvent()

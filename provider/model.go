@@ -7,8 +7,8 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/casualjim/bubo/internal/shorttermmemory"
 	"github.com/casualjim/bubo/pkg/reflectx"
-	"github.com/casualjim/bubo/pkg/runstate"
 	"github.com/casualjim/bubo/types"
 	"github.com/goccy/go-json"
 	"github.com/google/uuid"
@@ -23,7 +23,7 @@ type Provider interface {
 type CompletionParams struct {
 	RunID          uuid.UUID
 	Instructions   string
-	Thread         *runstate.Aggregator
+	Thread         *shorttermmemory.Aggregator
 	Stream         bool
 	ResponseSchema *jsonschema.Schema
 	Model          interface {

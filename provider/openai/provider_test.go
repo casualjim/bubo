@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/casualjim/bubo/pkg/messages"
-	"github.com/casualjim/bubo/pkg/runstate"
+	"github.com/casualjim/bubo/internal/shorttermmemory"
+	"github.com/casualjim/bubo/messages"
 	"github.com/casualjim/bubo/provider"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go"
@@ -31,7 +31,7 @@ func TestProvider_buildRequest_Error(t *testing.T) {
 	p := New()
 	ctx := context.Background()
 	runID := uuid.New()
-	aggregator := runstate.NewAggregator()
+	aggregator := shorttermmemory.NewAggregator()
 
 	// Create a tool with an invalid function that will fail JSON conversion
 	invalidTool := provider.ToolDefinition{
@@ -57,7 +57,7 @@ func TestProvider_buildRequest(t *testing.T) {
 	p := New()
 	ctx := context.Background()
 	runID := uuid.New()
-	aggregator := runstate.NewAggregator()
+	aggregator := shorttermmemory.NewAggregator()
 
 	// Add user message to the aggregator
 	userMsg := messages.Message[messages.UserMessage]{
@@ -156,7 +156,7 @@ func TestProvider_ChatCompletion_ContextCancellation(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	runID := uuid.New()
-	aggregator := runstate.NewAggregator()
+	aggregator := shorttermmemory.NewAggregator()
 
 	params := provider.CompletionParams{
 		RunID:        runID,
@@ -201,7 +201,7 @@ func TestProvider_buildRequest_ComplexTools(t *testing.T) {
 	p := New()
 	ctx := context.Background()
 	runID := uuid.New()
-	aggregator := runstate.NewAggregator()
+	aggregator := shorttermmemory.NewAggregator()
 
 	// Create tools with string parameters
 	toolDefs := []provider.ToolDefinition{
@@ -279,7 +279,7 @@ func TestProvider_ChatCompletion(t *testing.T) {
 
 	ctx := context.Background()
 	runID := uuid.New()
-	aggregator := runstate.NewAggregator()
+	aggregator := shorttermmemory.NewAggregator()
 
 	params := provider.CompletionParams{
 		RunID:        runID,
@@ -315,7 +315,7 @@ func TestMessagesToOpenAI_EmptyMessages(t *testing.T) {
 
 func TestMessagesToOpenAI_ContentParts(t *testing.T) {
 	runID := uuid.New()
-	aggregator := runstate.NewAggregator()
+	aggregator := shorttermmemory.NewAggregator()
 
 	// Create a message with different content parts
 	userMsg := messages.Message[messages.UserMessage]{
@@ -371,7 +371,7 @@ func TestMessagesToOpenAI_ContentParts(t *testing.T) {
 
 func TestMessagesToOpenAI(t *testing.T) {
 	runID := uuid.New()
-	aggregator := runstate.NewAggregator()
+	aggregator := shorttermmemory.NewAggregator()
 
 	// Add different types of messages
 	userMsg := messages.Message[messages.UserMessage]{
@@ -433,7 +433,7 @@ func TestMessagesToOpenAI(t *testing.T) {
 
 func TestCompletionChunkToStreamEvent(t *testing.T) {
 	runID := uuid.New()
-	aggregator := runstate.NewAggregator()
+	aggregator := shorttermmemory.NewAggregator()
 
 	tests := []struct {
 		name     string
@@ -564,7 +564,7 @@ func TestProvider_ChatCompletion_Stream(t *testing.T) {
 
 	ctx := context.Background()
 	runID := uuid.New()
-	aggregator := runstate.NewAggregator()
+	aggregator := shorttermmemory.NewAggregator()
 
 	params := provider.CompletionParams{
 		RunID:        runID,
@@ -609,7 +609,7 @@ func TestProvider_ChatCompletion_Stream(t *testing.T) {
 
 func TestCompletionToStreamEvent_MultipleToolCalls(t *testing.T) {
 	runID := uuid.New()
-	aggregator := runstate.NewAggregator()
+	aggregator := shorttermmemory.NewAggregator()
 
 	chat := &openai.ChatCompletion{
 		Choices: []openai.ChatCompletionChoice{
@@ -659,7 +659,7 @@ func TestCompletionToStreamEvent_MultipleToolCalls(t *testing.T) {
 
 func TestCompletionToStreamEvent(t *testing.T) {
 	runID := uuid.New()
-	aggregator := runstate.NewAggregator()
+	aggregator := shorttermmemory.NewAggregator()
 
 	tests := []struct {
 		name     string

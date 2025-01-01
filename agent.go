@@ -7,11 +7,11 @@ import (
 	"github.com/casualjim/bubo/types"
 )
 
-// Agent represents an interface for an agent with various capabilities.
+// Owl represents an interface for an agent with various capabilities.
 // It provides methods to retrieve the agent's name, model, instructions,
 // function definitions, tool choice, and whether it supports parallel tool calls.
 // available functions, tool choice, and whether parallel tool calls are supported.
-type Agent interface {
+type Owl interface {
 	// Name returns the agent's name
 	Name() string
 
@@ -34,12 +34,12 @@ type Agent interface {
 	RenderInstructions(types.ContextVars) (string, error)
 }
 
-var _ Agent = (*DefaultAgent)(nil)
+var _ Owl = (*DefaultOwl)(nil)
 
-// DefaultAgent represents an agent with specific attributes and capabilities.
+// DefaultOwl represents an agent with specific attributes and capabilities.
 // It includes the agent's name, model, instructions, function definitions, tool choice,
 // and whether it supports parallel tool calls.
-type DefaultAgent struct {
+type DefaultOwl struct {
 	name              string
 	model             Model
 	instructions      string
@@ -49,37 +49,37 @@ type DefaultAgent struct {
 }
 
 // Name returns the agent's name.
-func (a *DefaultAgent) Name() string {
+func (a *DefaultOwl) Name() string {
 	return a.name
 }
 
 // Model returns the agent's model.
-func (a *DefaultAgent) Model() Model {
+func (a *DefaultOwl) Model() Model {
 	return a.model
 }
 
 // Instructions returns the agent's instructions.
-func (a *DefaultAgent) Instructions() string {
+func (a *DefaultOwl) Instructions() string {
 	return a.instructions
 }
 
 // Tools returns the agent's function definitions.
-func (a *DefaultAgent) Tools() []AgentToolDefinition {
+func (a *DefaultOwl) Tools() []AgentToolDefinition {
 	return a.tools
 }
 
 // ToolChoice returns the agent's tool choice.
-func (a *DefaultAgent) ToolChoice() string {
+func (a *DefaultOwl) ToolChoice() string {
 	return a.toolChoice
 }
 
 // ParallelToolCalls returns whether the agent supports parallel tool calls.
-func (a *DefaultAgent) ParallelToolCalls() bool {
+func (a *DefaultOwl) ParallelToolCalls() bool {
 	return a.parallelToolCalls
 }
 
 // RenderInstructions renders the agent's instructions with the provided context variables.
-func (a *DefaultAgent) RenderInstructions(cv types.ContextVars) (string, error) {
+func (a *DefaultOwl) RenderInstructions(cv types.ContextVars) (string, error) {
 	if !strings.Contains(a.instructions, "{{") {
 		return a.instructions, nil
 	}
@@ -101,55 +101,55 @@ func renderTemplate(name, templateStr string, cv types.ContextVars) (string, err
 }
 
 // AddTool adds a function definition to the agent.
-func (a *DefaultAgent) AddTool(f1 AgentToolDefinition, frest ...AgentToolDefinition) {
+func (a *DefaultOwl) AddTool(f1 AgentToolDefinition, frest ...AgentToolDefinition) {
 	a.tools = append(a.tools, append([]AgentToolDefinition{f1}, frest...)...)
 }
 
 // WithTool adds a function definition to the agent.
-func (a *DefaultAgent) WithTool(f1 AgentToolDefinition, frest ...AgentToolDefinition) *DefaultAgent {
+func (a *DefaultOwl) WithTool(f1 AgentToolDefinition, frest ...AgentToolDefinition) *DefaultOwl {
 	a.tools = append(a.tools, append([]AgentToolDefinition{f1}, frest...)...)
 	return a
 }
 
 // SetToolChoice sets the agent's tool choice.
-func (a *DefaultAgent) SetToolChoice(toolChoice string) {
+func (a *DefaultOwl) SetToolChoice(toolChoice string) {
 	a.toolChoice = toolChoice
 }
 
 // WithToolChoice sets the agent's tool choice.
-func (a *DefaultAgent) WithToolChoice(toolChoice string) *DefaultAgent {
+func (a *DefaultOwl) WithToolChoice(toolChoice string) *DefaultOwl {
 	a.toolChoice = toolChoice
 	return a
 }
 
 // EnableParallelToolCalls enables parallel tool calls for the agent.
-func (a *DefaultAgent) EnableParallelToolCalls() {
+func (a *DefaultOwl) EnableParallelToolCalls() {
 	a.parallelToolCalls = true
 }
 
 // DisableParallelToolCalls disables parallel tool calls for the agent.
-func (a *DefaultAgent) DisableParallelToolCalls() {
+func (a *DefaultOwl) DisableParallelToolCalls() {
 	a.parallelToolCalls = false
 }
 
 // WithParallelToolCalls enables parallel tool calls for the agent.
-func (a *DefaultAgent) WithParallelToolCalls() *DefaultAgent {
+func (a *DefaultOwl) WithParallelToolCalls() *DefaultOwl {
 	a.parallelToolCalls = true
 	return a
 }
 
 // WithoutParallelToolCalls disables parallel tool calls for the agent.
-func (a *DefaultAgent) WithoutParallelToolCalls() *DefaultAgent {
+func (a *DefaultOwl) WithoutParallelToolCalls() *DefaultOwl {
 	a.parallelToolCalls = false
 	return a
 }
 
 // NewAgent creates a new DefaultAgent with the provided parameters.
-func NewAgent(name string, model Model, instructions string) *DefaultAgent {
+func NewAgent(name string, model Model, instructions string) *DefaultOwl {
 	if model == nil {
 		panic("model is required")
 	}
-	return &DefaultAgent{
+	return &DefaultOwl{
 		name:              name,
 		model:             model,
 		instructions:      instructions,

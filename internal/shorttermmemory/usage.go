@@ -1,4 +1,4 @@
-package runstate
+package shorttermmemory
 
 type Usage struct {
 	// Number of tokens in the generated completion.

@@ -1,4 +1,4 @@
-package pubsub
+package events
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"slices"
 
-	"github.com/casualjim/bubo/pkg/messages"
+	"github.com/casualjim/bubo/messages"
 	"github.com/casualjim/bubo/pkg/slogx"
 )
 

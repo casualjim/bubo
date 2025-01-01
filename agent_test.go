@@ -21,7 +21,7 @@ func (m *testModel) Provider() provider.Provider {
 
 func TestDefaultAgent(t *testing.T) {
 	t.Run("basic properties", func(t *testing.T) {
-		agent := &DefaultAgent{
+		agent := &DefaultOwl{
 			name:         "test-agent",
 			model:        &testModel{},
 			instructions: "test instructions",

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/casualjim/bubo/pkg/messages"
+	"github.com/casualjim/bubo/messages"
 	"github.com/casualjim/bubo/provider"
 	"github.com/go-openapi/strfmt"
 	"github.com/openai/openai-go"

@@ -3,11 +3,9 @@ package events
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
 	"slices"
 
 	"github.com/casualjim/bubo/messages"
-	"github.com/casualjim/bubo/pkg/slogx"
 )
 
 // Hook defines the interface for handling all possible event types in the execution flow.
@@ -40,7 +38,7 @@ import (
 //	    log.Debug("ignoring assistant chunk")
 //	}
 //	// ... must implement all other methods
-type Hook[T any] interface {
+type Hook interface {
 	OnUserPrompt(context.Context, messages.Message[messages.UserMessage])
 
 	OnAssistantChunk(context.Context, messages.Message[messages.AssistantMessage])
@@ -53,16 +51,14 @@ type Hook[T any] interface {
 
 	OnToolCallResponse(context.Context, messages.Message[messages.ToolResponse])
 
-	OnResult(context.Context, T)
-
 	OnError(context.Context, error)
 }
 
-func LoggingHook[T any]() Hook[T] {
-	return &loggingHook[T]{}
-}
+// func LoggingHook() Hook {
+// 	return &loggingHook{}
+// }
 
-type loggingHook[T any] struct{}
+// type loggingHook struct{}
 
 func mustJSON(v any) string {
 	b, err := json.Marshal(v)
@@ -72,90 +68,84 @@ func mustJSON(v any) string {
 	return string(b)
 }
 
-func (loggingHook[T]) OnUserPrompt(ctx context.Context, msg messages.Message[messages.UserMessage]) {
-	slog.InfoContext(ctx, "User prompt", "message", mustJSON(msg))
-}
+// func (loggingHook) OnUserPrompt(ctx context.Context, msg messages.Message[messages.UserMessage]) {
+// 	slog.InfoContext(ctx, "User prompt", "message", mustJSON(msg))
+// }
 
-func (loggingHook[T]) OnAssistantChunk(ctx context.Context, msg messages.Message[messages.AssistantMessage]) {
-	slog.InfoContext(ctx, "Assistant chunk", "message", mustJSON(msg))
-}
+// func (loggingHook) OnAssistantChunk(ctx context.Context, msg messages.Message[messages.AssistantMessage]) {
+// 	slog.InfoContext(ctx, "Assistant chunk", "message", mustJSON(msg))
+// }
 
-func (loggingHook[T]) OnToolCallChunk(ctx context.Context, msg messages.Message[messages.ToolCallMessage]) {
-	slog.InfoContext(ctx, "Tool call chunk", "message", mustJSON(msg))
-}
+// func (loggingHook) OnToolCallChunk(ctx context.Context, msg messages.Message[messages.ToolCallMessage]) {
+// 	slog.InfoContext(ctx, "Tool call chunk", "message", mustJSON(msg))
+// }
 
-func (loggingHook[T]) OnAssistantMessage(ctx context.Context, msg messages.Message[messages.AssistantMessage]) {
-	slog.InfoContext(ctx, "Assistant message", "message", mustJSON(msg))
-}
+// func (loggingHook) OnAssistantMessage(ctx context.Context, msg messages.Message[messages.AssistantMessage]) {
+// 	slog.InfoContext(ctx, "Assistant message", "message", mustJSON(msg))
+// }
 
-func (loggingHook[T]) OnToolCallMessage(ctx context.Context, msg messages.Message[messages.ToolCallMessage]) {
-	slog.InfoContext(ctx, "Tool call", "message", mustJSON(msg))
-}
+// func (loggingHook) OnToolCallMessage(ctx context.Context, msg messages.Message[messages.ToolCallMessage]) {
+// 	slog.InfoContext(ctx, "Tool call", "message", mustJSON(msg))
+// }
 
-func (loggingHook[T]) OnToolCallResponse(ctx context.Context, msg messages.Message[messages.ToolResponse]) {
-	slog.InfoContext(ctx, "Tool call response", "message", mustJSON(msg))
-}
+// func (loggingHook) OnToolCallResponse(ctx context.Context, msg messages.Message[messages.ToolResponse]) {
+// 	slog.InfoContext(ctx, "Tool call response", "message", mustJSON(msg))
+// }
 
-func (loggingHook[T]) OnResult(ctx context.Context, result T) {
-	slog.InfoContext(ctx, "completion result", "result", mustJSON(result))
-}
+// func (loggingHook) OnResult(ctx context.Context, result T) {
+// 	slog.InfoContext(ctx, "completion result", "result", mustJSON(result))
+// }
 
-func (loggingHook[T]) OnError(ctx context.Context, err error) {
-	slog.ErrorContext(ctx, "completion error", slogx.Error(err))
-}
+// func (loggingHook) OnError(ctx context.Context, err error) {
+// 	slog.ErrorContext(ctx, "completion error", slogx.Error(err))
+// }
 
-func NewCompositeHook[T any](hooks ...Hook[T]) Hook[T] {
-	return CompositeHook[T](hooks)
+func NewCompositeHook(hooks ...Hook) Hook {
+	return CompositeHook(hooks)
 }
 
 // CompositeHook allows combining multiple hooks into a single hook implementation.
 // Note: This is provided as a utility for combining hooks, not as a way to avoid
 // implementing the full interface.
-type CompositeHook[T any] []Hook[T]
+type CompositeHook []Hook
 
-func (c CompositeHook[T]) OnUserPrompt(ctx context.Context, up messages.Message[messages.UserMessage]) {
+func (c CompositeHook) OnUserPrompt(ctx context.Context, up messages.Message[messages.UserMessage]) {
 	for h := range slices.Values(c) {
 		h.OnUserPrompt(ctx, up)
 	}
 }
 
-func (c CompositeHook[T]) OnAssistantChunk(ctx context.Context, ac messages.Message[messages.AssistantMessage]) {
+func (c CompositeHook) OnAssistantChunk(ctx context.Context, ac messages.Message[messages.AssistantMessage]) {
 	for h := range slices.Values(c) {
 		h.OnAssistantChunk(ctx, ac)
 	}
 }
 
-func (c CompositeHook[T]) OnToolCallChunk(ctx context.Context, tc messages.Message[messages.ToolCallMessage]) {
+func (c CompositeHook) OnToolCallChunk(ctx context.Context, tc messages.Message[messages.ToolCallMessage]) {
 	for h := range slices.Values(c) {
 		h.OnToolCallChunk(ctx, tc)
 	}
 }
 
-func (c CompositeHook[T]) OnAssistantMessage(ctx context.Context, am messages.Message[messages.AssistantMessage]) {
+func (c CompositeHook) OnAssistantMessage(ctx context.Context, am messages.Message[messages.AssistantMessage]) {
 	for h := range slices.Values(c) {
 		h.OnAssistantMessage(ctx, am)
 	}
 }
 
-func (c CompositeHook[T]) OnToolCallMessage(ctx context.Context, tm messages.Message[messages.ToolCallMessage]) {
+func (c CompositeHook) OnToolCallMessage(ctx context.Context, tm messages.Message[messages.ToolCallMessage]) {
 	for h := range slices.Values(c) {
 		h.OnToolCallMessage(ctx, tm)
 	}
 }
 
-func (c CompositeHook[T]) OnToolCallResponse(ctx context.Context, tr messages.Message[messages.ToolResponse]) {
+func (c CompositeHook) OnToolCallResponse(ctx context.Context, tr messages.Message[messages.ToolResponse]) {
 	for h := range slices.Values(c) {
 		h.OnToolCallResponse(ctx, tr)
 	}
 }
 
-func (c CompositeHook[T]) OnResult(ctx context.Context, result T) {
-	for h := range slices.Values(c) {
-		h.OnResult(ctx, result)
-	}
-}
-
-func (c CompositeHook[T]) OnError(ctx context.Context, err error) {
+func (c CompositeHook) OnError(ctx context.Context, err error) {
 	for h := range slices.Values(c) {
 		h.OnError(ctx, err)
 	}

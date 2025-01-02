@@ -59,7 +59,7 @@ func TestConsolePrettyStreaming(t *testing.T) {
 	}()
 
 	var buf strings.Builder
-	err := ConsolePretty(ctx, &buf, events)
+	err := ConsolePretty[any](ctx, &buf, events)
 	require.NoError(t, err)
 
 	output := buf.String()

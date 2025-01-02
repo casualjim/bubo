@@ -131,14 +131,14 @@ func (h *overflowHook) OnAssistantMessage(ctx context.Context, msg messages.Mess
 
 func TestBroker(t *testing.T) {
 	t.Run("creates unique topics", func(t *testing.T) {
-		broker := Local[any]()
+		broker := Local()
 		topic1 := broker.Topic(context.Background(), "test1")
 		topic2 := broker.Topic(context.Background(), "test2")
 		assert.NotEqual(t, topic1, topic2)
 	})
 
 	t.Run("reuses existing topics", func(t *testing.T) {
-		broker := Local[any]()
+		broker := Local()
 		topic1 := broker.Topic(context.Background(), "test")
 		topic2 := broker.Topic(context.Background(), "test")
 		assert.Equal(t, topic1, topic2)
@@ -147,7 +147,7 @@ func TestBroker(t *testing.T) {
 
 func TestTopic(t *testing.T) {
 	t.Run("publishes events to all subscribers", func(t *testing.T) {
-		broker := Local[any]().(*localBroker[any])
+		broker := Local().(*localBroker)
 		broker = broker.WithSlowSubscriberTimeout(1 * time.Millisecond) // Very short timeout for testing
 		topic := broker.Topic(context.Background(), "test")
 
@@ -234,7 +234,7 @@ func TestTopic(t *testing.T) {
 	})
 
 	t.Run("handles channel overflow", func(t *testing.T) {
-		broker := Local[any]().(*localBroker[any])
+		broker := Local().(*localBroker)
 		broker = broker.WithSlowSubscriberTimeout(50 * time.Millisecond) // Give enough time for test setup
 		topic := broker.Topic(context.Background(), "test")
 		ctx := context.Background()
@@ -287,7 +287,7 @@ func TestTopic(t *testing.T) {
 	})
 
 	t.Run("respects publish context cancellation", func(t *testing.T) {
-		broker := Local[any]()
+		broker := Local()
 		topic := broker.Topic(context.Background(), "test")
 
 		// Create a subscriber
@@ -323,7 +323,7 @@ func TestTopic(t *testing.T) {
 	})
 
 	t.Run("handles context cancellation", func(t *testing.T) {
-		broker := Local[any]()
+		broker := Local()
 		topic := broker.Topic(context.Background(), "test")
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -358,7 +358,7 @@ func TestTopic(t *testing.T) {
 	})
 
 	t.Run("handles unsubscribe", func(t *testing.T) {
-		broker := Local[any]()
+		broker := Local()
 		topic := broker.Topic(context.Background(), "test")
 
 		ctx := context.Background()
@@ -392,7 +392,7 @@ func TestTopic(t *testing.T) {
 	})
 
 	t.Run("handles concurrent operations", func(t *testing.T) {
-		broker := Local[any]()
+		broker := Local()
 		topic := broker.Topic(context.Background(), "test")
 		ctx := context.Background()
 

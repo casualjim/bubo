@@ -65,84 +65,84 @@ func (m *mockHook) OnError(ctx context.Context, err error) {
 	m.lastError = err
 }
 
-func TestLoggingHook(t *testing.T) {
-	hook := LoggingHook[any]()
-	ctx := context.Background()
+// func TestLoggingHook(t *testing.T) {
+// 	hook := LoggingHook[any]()
+// 	ctx := context.Background()
 
-	t.Run("OnUserPrompt", func(t *testing.T) {
-		msg := messages.Message[messages.UserMessage]{
-			Payload: messages.UserMessage{
-				Content: messages.ContentOrParts{Content: "test prompt"},
-			},
-		}
-		require.NotPanics(t, func() {
-			hook.OnUserPrompt(ctx, msg)
-		})
-	})
+// 	t.Run("OnUserPrompt", func(t *testing.T) {
+// 		msg := messages.Message[messages.UserMessage]{
+// 			Payload: messages.UserMessage{
+// 				Content: messages.ContentOrParts{Content: "test prompt"},
+// 			},
+// 		}
+// 		require.NotPanics(t, func() {
+// 			hook.OnUserPrompt(ctx, msg)
+// 		})
+// 	})
 
-	t.Run("OnAssistantChunk", func(t *testing.T) {
-		msg := messages.Message[messages.AssistantMessage]{
-			Payload: messages.AssistantMessage{
-				Content: messages.AssistantContentOrParts{Content: "test chunk"},
-			},
-		}
-		require.NotPanics(t, func() {
-			hook.OnAssistantChunk(ctx, msg)
-		})
-	})
+// 	t.Run("OnAssistantChunk", func(t *testing.T) {
+// 		msg := messages.Message[messages.AssistantMessage]{
+// 			Payload: messages.AssistantMessage{
+// 				Content: messages.AssistantContentOrParts{Content: "test chunk"},
+// 			},
+// 		}
+// 		require.NotPanics(t, func() {
+// 			hook.OnAssistantChunk(ctx, msg)
+// 		})
+// 	})
 
-	t.Run("OnToolCallChunk", func(t *testing.T) {
-		msg := messages.Message[messages.ToolCallMessage]{
-			Payload: messages.ToolCallMessage{
-				ToolCalls: []messages.ToolCallData{{Name: "test", Arguments: "{}"}},
-			},
-		}
-		require.NotPanics(t, func() {
-			hook.OnToolCallChunk(ctx, msg)
-		})
-	})
+// 	t.Run("OnToolCallChunk", func(t *testing.T) {
+// 		msg := messages.Message[messages.ToolCallMessage]{
+// 			Payload: messages.ToolCallMessage{
+// 				ToolCalls: []messages.ToolCallData{{Name: "test", Arguments: "{}"}},
+// 			},
+// 		}
+// 		require.NotPanics(t, func() {
+// 			hook.OnToolCallChunk(ctx, msg)
+// 		})
+// 	})
 
-	t.Run("OnAssistantMessage", func(t *testing.T) {
-		msg := messages.Message[messages.AssistantMessage]{
-			Payload: messages.AssistantMessage{
-				Content: messages.AssistantContentOrParts{Content: "test message"},
-			},
-		}
-		require.NotPanics(t, func() {
-			hook.OnAssistantMessage(ctx, msg)
-		})
-	})
+// 	t.Run("OnAssistantMessage", func(t *testing.T) {
+// 		msg := messages.Message[messages.AssistantMessage]{
+// 			Payload: messages.AssistantMessage{
+// 				Content: messages.AssistantContentOrParts{Content: "test message"},
+// 			},
+// 		}
+// 		require.NotPanics(t, func() {
+// 			hook.OnAssistantMessage(ctx, msg)
+// 		})
+// 	})
 
-	t.Run("OnToolCallMessage", func(t *testing.T) {
-		msg := messages.Message[messages.ToolCallMessage]{
-			Payload: messages.ToolCallMessage{
-				ToolCalls: []messages.ToolCallData{{Name: "test", Arguments: "{}"}},
-			},
-		}
-		require.NotPanics(t, func() {
-			hook.OnToolCallMessage(ctx, msg)
-		})
-	})
+// 	t.Run("OnToolCallMessage", func(t *testing.T) {
+// 		msg := messages.Message[messages.ToolCallMessage]{
+// 			Payload: messages.ToolCallMessage{
+// 				ToolCalls: []messages.ToolCallData{{Name: "test", Arguments: "{}"}},
+// 			},
+// 		}
+// 		require.NotPanics(t, func() {
+// 			hook.OnToolCallMessage(ctx, msg)
+// 		})
+// 	})
 
-	t.Run("OnToolCallResponse", func(t *testing.T) {
-		msg := messages.Message[messages.ToolResponse]{
-			Payload: messages.ToolResponse{
-				ToolName: "test",
-				Content:  "result",
-			},
-		}
-		require.NotPanics(t, func() {
-			hook.OnToolCallResponse(ctx, msg)
-		})
-	})
+// 	t.Run("OnToolCallResponse", func(t *testing.T) {
+// 		msg := messages.Message[messages.ToolResponse]{
+// 			Payload: messages.ToolResponse{
+// 				ToolName: "test",
+// 				Content:  "result",
+// 			},
+// 		}
+// 		require.NotPanics(t, func() {
+// 			hook.OnToolCallResponse(ctx, msg)
+// 		})
+// 	})
 
-	t.Run("OnError", func(t *testing.T) {
-		err := fmt.Errorf("test error")
-		require.NotPanics(t, func() {
-			hook.OnError(ctx, err)
-		})
-	})
-}
+// 	t.Run("OnError", func(t *testing.T) {
+// 		err := fmt.Errorf("test error")
+// 		require.NotPanics(t, func() {
+// 			hook.OnError(ctx, err)
+// 		})
+// 	})
+// }
 
 func TestCompositeHook(t *testing.T) {
 	mock1 := &mockHook{}

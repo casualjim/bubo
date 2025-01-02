@@ -117,7 +117,7 @@ func TestResponse_MarshalJSON(t *testing.T) {
 	turnID := uuid.New()
 	timestamp := strfmt.DateTime(time.Now().UTC().Truncate(time.Millisecond))
 
-	aggregator := shorttermmemory.NewAggregator()
+	aggregator := shorttermmemory.New()
 	response := Response[messages.AssistantMessage]{
 		RunID:      runID,
 		TurnID:     turnID,

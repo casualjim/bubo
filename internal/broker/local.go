@@ -14,43 +14,43 @@ import (
 
 const defaultSlowSubscriberTimeout = 100 * time.Millisecond
 
-type localBroker[T any] struct {
-	topics                *haxmap.Map[string, *topic[T]]
+type localBroker struct {
+	topics                *haxmap.Map[string, *topic]
 	slowSubscriberTimeout time.Duration
 }
 
-func Local[T any]() Broker[T] {
-	return &localBroker[T]{
-		topics:                haxmap.New[string, *topic[T]](),
+func Local() Broker {
+	return &localBroker{
+		topics:                haxmap.New[string, *topic](),
 		slowSubscriberTimeout: defaultSlowSubscriberTimeout,
 	}
 }
 
 // WithSlowSubscriberTimeout configures the timeout for detecting slow subscribers
-func (b *localBroker[T]) WithSlowSubscriberTimeout(timeout time.Duration) *localBroker[T] {
+func (b *localBroker) WithSlowSubscriberTimeout(timeout time.Duration) *localBroker {
 	b.slowSubscriberTimeout = timeout
 	return b
 }
 
-func (b *localBroker[T]) Topic(ctx context.Context, id string) Topic[T] {
-	topic, _ := b.topics.GetOrCompute(id, func() *topic[T] {
-		return &topic[T]{
+func (b *localBroker) Topic(ctx context.Context, id string) Topic {
+	topic, _ := b.topics.GetOrCompute(id, func() *topic {
+		return &topic{
 			ID:                    id,
-			subscriptions:         haxmap.New[string, *subscription[T]](),
+			subscriptions:         haxmap.New[string, *subscription](),
 			slowSubscriberTimeout: b.slowSubscriberTimeout,
 		}
 	})
 	return topic
 }
 
-type topic[T any] struct {
+type topic struct {
 	ID                    string
-	subscriptions         *haxmap.Map[string, *subscription[T]]
+	subscriptions         *haxmap.Map[string, *subscription]
 	slowSubscriberTimeout time.Duration
 }
 
-func (t *topic[T]) Publish(ctx context.Context, event events.Event) error {
-	t.subscriptions.ForEach(func(id string, sub *subscription[T]) bool {
+func (t *topic) Publish(ctx context.Context, event events.Event) error {
+	t.subscriptions.ForEach(func(id string, sub *subscription) bool {
 		if sub == nil {
 			return true
 		}
@@ -82,7 +82,7 @@ func (t *topic[T]) Publish(ctx context.Context, event events.Event) error {
 	return nil
 }
 
-func (t *topic[T]) Subscribe(ctx context.Context, hook events.Hook[T]) (Subscription, error) {
+func (t *topic) Subscribe(ctx context.Context, hook events.Hook) (Subscription, error) {
 	if hook == nil {
 		return nil, fmt.Errorf("hook is required")
 	}
@@ -90,9 +90,9 @@ func (t *topic[T]) Subscribe(ctx context.Context, hook events.Hook[T]) (Subscrip
 	return sub, nil
 }
 
-func (t *topic[T]) newSubscription(ctx context.Context, hook events.Hook[T]) *subscription[T] {
+func (t *topic) newSubscription(ctx context.Context, hook events.Hook) *subscription {
 	id := uuidx.NewString()
-	sub := &subscription[T]{
+	sub := &subscription{
 		id:        id, // Use the same ID for both the subscription and map key
 		ctx:       ctx,
 		channel:   make(chan events.Event, 50), // Buffer size optimized for typical usage
@@ -105,20 +105,20 @@ func (t *topic[T]) newSubscription(ctx context.Context, hook events.Hook[T]) *su
 	return sub
 }
 
-type subscription[T any] struct {
+type subscription struct {
 	id        string
 	ctx       context.Context
 	channel   chan events.Event
 	closeOnce sync.Once
 	onClose   func()
-	hook      events.Hook[T]
+	hook      events.Hook
 }
 
-func (s *subscription[T]) ID() string {
+func (s *subscription) ID() string {
 	return s.id
 }
 
-func (s *subscription[T]) Unsubscribe() {
+func (s *subscription) Unsubscribe() {
 	s.closeOnce.Do(func() {
 		if s.onClose != nil {
 			s.onClose()
@@ -127,7 +127,7 @@ func (s *subscription[T]) Unsubscribe() {
 	})
 }
 
-func (s *subscription[T]) forwardToHook() {
+func (s *subscription) forwardToHook() {
 	for {
 		select {
 		case event, ok := <-s.channel:
@@ -179,8 +179,7 @@ func (s *subscription[T]) forwardToHook() {
 					Timestamp: event.Timestamp,
 					Meta:      event.Meta,
 				})
-			case events.Result[T]:
-				s.hook.OnResult(s.ctx, event.Result)
+
 			case events.Error:
 				s.hook.OnError(s.ctx, event.Err)
 			default:

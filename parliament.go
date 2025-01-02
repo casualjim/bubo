@@ -17,7 +17,7 @@ import (
 )
 
 type Step[T any] struct {
-	owl      api.Owl           //nolint:unused // Reserved for future use
+	owlName  string            //nolint:unused // Reserved for future use
 	task     string            //nolint:unused // Reserved for future use
 	executor executor.Executor //nolint:unused // Reserved for future use
 }
@@ -89,7 +89,7 @@ type Future[T any] interface {
 	Get() (T, error)
 }
 
-func Local[T any](hook events.Hook) (Future[T], RunConfig) {
+func Local[T any](hook Hook[T]) (Future[T], RunConfig) {
 	fut := executor.NewFuture(executor.DefaultUnmarshal[T]())
 
 	return fut, RunConfig{
@@ -116,4 +116,9 @@ func (p *Parliament) Run(ctx context.Context, prompt string, rc RunConfig) error
 		}
 	}
 	return nil
+}
+
+type Hook[T any] interface {
+	events.Hook
+	OnResult(ctx context.Context, result T)
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/casualjim/bubo"
 	"github.com/casualjim/bubo/examples/internal/msgfmt"
 	"github.com/casualjim/bubo/owl"
+	"github.com/casualjim/bubo/pkg/slogx"
 	"github.com/casualjim/bubo/provider/openai"
 	_ "github.com/joho/godotenv/autoload"
 	"github.com/phsym/zeroslog"
@@ -36,8 +37,16 @@ func main() {
 			owl.New(owl.Name("minimal-agent"), owl.Model(openai.GPT4oMini()), owl.Instructions("You are a helpful assistant")),
 		),
 	)
-	fut, config := bubo.Local[string](hook)
-	p.Run(ctx, "Hello, world!", config)
+	fut, config := bubo.Local(hook)
+	if err := p.Run(ctx, "Hello, world!", config); err != nil {
+		slog.Error("failed to run bubo", slogx.Error(err))
+		return
+	}
 
-	fmt.Println(fut.Get())
+	success, err := fut.Get()
+	if err != nil {
+		slog.Error("failed to get result", slogx.Error(err))
+		return
+	}
+	fmt.Println(success)
 }

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/casualjim/bubo"
 	buboevents "github.com/casualjim/bubo/events"
 	"github.com/casualjim/bubo/internal/shorttermmemory"
 	"github.com/casualjim/bubo/messages"
@@ -24,7 +25,7 @@ func ConsolePretty[T any](ctx context.Context, w io.Writer, events <-chan buboev
 	return printStreamingMessages[T](ctx, w, events, make(chan T))
 }
 
-func Console[T any](ctx context.Context, w io.Writer) (buboevents.Hook, <-chan T) {
+func Console[T any](ctx context.Context, w io.Writer) (bubo.Hook[T], <-chan T) {
 	ch, hook := newConsoleHook[T]()
 	doneC := make(chan T)
 	go func() {
@@ -95,7 +96,7 @@ func printStreamingMessages[T any](ctx context.Context, w io.Writer, events <-ch
 	}
 }
 
-func newConsoleHook[T any]() (<-chan buboevents.Event, buboevents.Hook) {
+func newConsoleHook[T any]() (<-chan buboevents.Event, bubo.Hook[T]) {
 	ch := make(chan buboevents.Event, 100)
 	return ch, &consoleHook[T]{ch: ch}
 }

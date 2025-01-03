@@ -15,7 +15,6 @@ import (
 
 	"github.com/casualjim/bubo/api"
 	"github.com/casualjim/bubo/events"
-	"github.com/casualjim/bubo/internal/broker"
 	"github.com/casualjim/bubo/internal/shorttermmemory"
 	"github.com/casualjim/bubo/messages"
 	"github.com/casualjim/bubo/pkg/reflectx"
@@ -40,15 +39,15 @@ func (e *breakError) Error() string {
 type Temporal struct{}
 
 type Local struct {
-	broker broker.Broker
+	// broker broker.Broker
 }
 
-func NewLocal(broker broker.Broker) *Local {
-	if broker == nil {
-		panic("broker cannot be nil")
-	}
+func NewLocal() *Local {
+	// if broker == nil {
+	// 	panic("broker cannot be nil")
+	// }
 	return &Local{
-		broker: broker,
+		// broker: broker,
 	}
 }
 
@@ -73,12 +72,8 @@ type toolCallParams struct {
 	agent       api.Owl
 	contextVars types.ContextVars
 	mem         *shorttermmemory.Aggregator
+	hook        events.Hook
 	toolCalls   messages.ToolCallMessage
-	topic       broker.Topic
-}
-
-func (l *Local) Topic(ctx context.Context, id string) broker.Topic {
-	return l.broker.Topic(ctx, id)
 }
 
 func (l *Local) Run(ctx context.Context, command RunCommand, promise Promise) error {
@@ -86,11 +81,11 @@ func (l *Local) Run(ctx context.Context, command RunCommand, promise Promise) er
 		return err
 	}
 
-	topic, subscription, err := l.setupTopicAndSubscription(ctx, command)
-	if err != nil {
-		return err
-	}
-	defer subscription.Unsubscribe()
+	// topic, subscription, err := l.setupTopicAndSubscription(ctx, command)
+	// if err != nil {
+	// 	return err
+	// }
+	// defer subscription.Unsubscribe()
 
 	contextVars := command.initializeContextVars()
 	thread := command.Thread.Fork()
@@ -101,39 +96,39 @@ func (l *Local) Run(ctx context.Context, command RunCommand, promise Promise) er
 		thread:      thread,
 		activeAgent: activeAgent,
 		contextVars: contextVars,
-		topic:       topic,
-		promise:     promise,
+		// topic:       topic,
+		promise: promise,
 	})
 }
 
-func (l *Local) setupTopicAndSubscription(ctx context.Context, command RunCommand) (broker.Topic, broker.Subscription, error) {
-	topic := l.Topic(ctx, command.ID().String())
-	subscription, err := topic.Subscribe(ctx, command.Hook)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to subscribe to topic: %w", err)
-	}
-	if subscription == nil {
-		return nil, nil, fmt.Errorf("received nil subscription from topic")
-	}
-	return topic, subscription, nil
-}
+// func (l *Local) setupTopicAndSubscription(ctx context.Context, command RunCommand) (broker.Topic, broker.Subscription, error) {
+// 	topic := l.Topic(ctx, command.ID().String())
+// 	subscription, err := topic.Subscribe(ctx, command.Hook)
+// 	if err != nil {
+// 		return nil, nil, fmt.Errorf("failed to subscribe to topic: %w", err)
+// 	}
+// 	if subscription == nil {
+// 		return nil, nil, fmt.Errorf("received nil subscription from topic")
+// 	}
+// 	return topic, subscription, nil
+// }
 
 type reactorParams struct {
 	command     RunCommand
 	thread      *shorttermmemory.Aggregator
 	activeAgent api.Owl
 	contextVars types.ContextVars
-	topic       broker.Topic
-	promise     Promise
+	// topic       broker.Topic
+	promise Promise
 }
 
 func (l *Local) runReactorLoop(ctx context.Context, params reactorParams) error {
 	for params.thread.TurnLen() < params.command.MaxTurns {
-		if err := l.validateAgentAndProvider(ctx, params); err != nil {
+		if err := l.validateAgentAndProvider(ctx, &params); err != nil {
 			return err
 		}
 
-		stream, err := l.initiateChatCompletion(ctx, params)
+		stream, err := l.initiateChatCompletion(ctx, &params)
 		if err != nil {
 			return err
 		}
@@ -149,7 +144,7 @@ func (l *Local) runReactorLoop(ctx context.Context, params reactorParams) error 
 	return nil
 }
 
-func (l *Local) validateAgentAndProvider(ctx context.Context, params reactorParams) error {
+func (l *Local) validateAgentAndProvider(ctx context.Context, params *reactorParams) error {
 	model := params.activeAgent.Model()
 	if model == nil {
 		err := fmt.Errorf("agent model cannot be nil")
@@ -167,7 +162,7 @@ func (l *Local) validateAgentAndProvider(ctx context.Context, params reactorPara
 	return nil
 }
 
-func (l *Local) initiateChatCompletion(ctx context.Context, params reactorParams) (<-chan provider.StreamEvent, error) {
+func (l *Local) initiateChatCompletion(ctx context.Context, params *reactorParams) (<-chan provider.StreamEvent, error) {
 	instructions, err := params.activeAgent.RenderInstructions(params.contextVars)
 	if err != nil {
 		l.publishError(ctx, params, fmt.Errorf("failed to render instructions: %w", err))
@@ -224,55 +219,73 @@ func (l *Local) processStreamEvent(ctx context.Context, event provider.StreamEve
 	case provider.Delim:
 		return nil
 	case provider.Error:
-		if perr := params.topic.Publish(ctx, events.FromStreamEvent(event, params.activeAgent.Name())); perr != nil {
-			slog.ErrorContext(ctx, "failed to publish error event", slogx.Error(perr))
-		}
+		l.publishError(ctx, params, event)
+
 		params.promise.Error(event.Err)
 		return event.Err
-	case provider.Chunk[messages.AssistantMessage], provider.Chunk[messages.ToolCallMessage]:
-		return l.publishEvent(ctx, *params, event)
+	case provider.Chunk[messages.AssistantMessage]:
+		params.command.Hook.OnAssistantChunk(ctx, messages.Message[messages.AssistantMessage]{
+			RunID:     event.RunID,
+			TurnID:    event.TurnID,
+			Payload:   event.Chunk,
+			Sender:    params.activeAgent.Name(),
+			Timestamp: event.Timestamp,
+			Meta:      event.Meta,
+		})
+		return nil
+	case provider.Chunk[messages.ToolCallMessage]:
+		// return l.publishEvent(ctx, *params, event)
+		params.command.Hook.OnToolCallChunk(ctx, messages.Message[messages.ToolCallMessage]{
+			RunID:     event.RunID,
+			TurnID:    event.TurnID,
+			Payload:   event.Chunk,
+			Sender:    params.activeAgent.Name(),
+			Timestamp: event.Timestamp,
+			Meta:      event.Meta,
+		})
+		return nil
 	case provider.Response[messages.ToolCallMessage]:
 		return l.handleToolCallResponse(ctx, event, params)
 	case provider.Response[messages.AssistantMessage]:
-		return l.handleAssistantResponse(ctx, event, params)
+
+		if err := l.handleAssistantResponse(ctx, event, params); err != nil {
+			return err
+		}
+		// Signal that we should break after the stream is closed
+		// params.command.MaxTurns = params.thread.TurnLen()
+		return nil
 	default:
 		panic(fmt.Sprintf("unknown event type %T", event))
 	}
 }
 
-func (l *Local) publishError(ctx context.Context, params reactorParams, err error) {
+func (l *Local) publishError(ctx context.Context, params *reactorParams, err error) {
 	if ee, hasErr := wrapErr(params.command.ID(), params.thread.ID(), params.activeAgent.Name(), err); hasErr {
-		_ = params.topic.Publish(ctx, ee)
+		params.command.Hook.OnError(ctx, ee)
 	}
-}
-
-func (l *Local) publishEvent(ctx context.Context, params reactorParams, event provider.StreamEvent) error {
-	if perr := params.topic.Publish(ctx, events.FromStreamEvent(event, params.activeAgent.Name())); perr != nil {
-		slog.ErrorContext(ctx, "failed to publish event", slogx.Error(perr))
-	}
-	return nil
 }
 
 func (l *Local) handleToolCallResponse(ctx context.Context, event provider.Response[messages.ToolCallMessage], params *reactorParams) error {
 	event.Checkpoint.MergeInto(params.thread)
-	if err := l.publishEvent(ctx, *params, event); err != nil {
-		return err
-	}
+	params.command.Hook.OnToolCallMessage(ctx, messages.Message[messages.ToolCallMessage]{
+		RunID:     event.RunID,
+		TurnID:    event.TurnID,
+		Payload:   event.Response,
+		Sender:    params.activeAgent.Name(),
+		Timestamp: event.Timestamp,
+		Meta:      event.Meta,
+	})
 
 	agent, err := l.handleToolCalls(ctx, toolCallParams{
 		mem:         params.thread.Fork(),
 		agent:       params.activeAgent,
 		runID:       params.command.ID(),
+		hook:        params.command.Hook,
 		toolCalls:   event.Response,
-		topic:       params.topic,
 		contextVars: params.contextVars,
 	})
 	if err != nil {
-		if evt, hasErr := wrapErr(params.command.ID(), params.thread.ID(), params.activeAgent.Name(), err); hasErr {
-			if perr := params.topic.Publish(ctx, evt); perr != nil {
-				slog.ErrorContext(ctx, "failed to publish response event", slogx.Error(perr))
-			}
-		}
+		l.publishError(ctx, params, err)
 		return err
 	}
 	if agent != nil {
@@ -283,20 +296,20 @@ func (l *Local) handleToolCallResponse(ctx context.Context, event provider.Respo
 
 func (l *Local) handleAssistantResponse(ctx context.Context, event provider.Response[messages.AssistantMessage], params *reactorParams) error {
 	event.Checkpoint.MergeInto(params.thread)
-	params.thread.AddAssistantMessage(messages.Message[messages.AssistantMessage]{
+
+	msg := messages.Message[messages.AssistantMessage]{
 		RunID:     params.command.ID(),
 		TurnID:    params.thread.ID(),
 		Payload:   event.Response,
 		Sender:    params.activeAgent.Name(),
 		Timestamp: strfmt.DateTime(time.Now()),
-	})
-
-	if err := l.publishEvent(ctx, *params, event); err != nil {
-		return err
 	}
+	params.thread.AddAssistantMessage(msg)
+	params.command.Hook.OnAssistantMessage(ctx, msg)
 
-	params.promise.Complete(event.Response.Content.Content)
-	return &breakError{} // Special error to break out of the reactor loop
+	// Signal that we should break after the stream is closed
+	params.command.MaxTurns = params.thread.TurnLen()
+	return nil
 }
 
 func (l *Local) handleToolCalls(ctx context.Context, params toolCallParams) (api.Owl, error) {
@@ -400,10 +413,10 @@ func (l *Local) handleToolCalls(ctx context.Context, params toolCallParams) (api
 		}
 
 		// Publish tool response
-		perr := params.topic.Publish(ctx, events.Request[messages.ToolResponse]{
+		params.hook.OnToolCallResponse(ctx, messages.Message[messages.ToolResponse]{
 			RunID:  params.runID,
 			TurnID: params.mem.ID(),
-			Message: messages.ToolResponse{
+			Payload: messages.ToolResponse{
 				ToolName:   tool.Name,
 				ToolCallID: item.call.ID,
 				Content:    fmt.Sprintf("transfer to agent %s", result.Agent.Name()),
@@ -411,9 +424,6 @@ func (l *Local) handleToolCalls(ctx context.Context, params toolCallParams) (api
 			Sender:    params.agent.Name(),
 			Timestamp: strfmt.DateTime(time.Now()),
 		})
-		if perr != nil {
-			return nil, perr
-		}
 
 		if result.Agent != nil {
 			return result.Agent, nil // Return first successful agent transfer
@@ -462,10 +472,10 @@ func (l *Local) handleToolCalls(ctx context.Context, params toolCallParams) (api
 		}
 
 		// Publish tool response
-		perr := params.topic.Publish(ctx, events.Request[messages.ToolResponse]{
+		params.hook.OnToolCallResponse(ctx, messages.Message[messages.ToolResponse]{
 			RunID:  params.runID,
 			TurnID: params.mem.ID(),
-			Message: messages.ToolResponse{
+			Payload: messages.ToolResponse{
 				ToolName:   tool.Name,
 				ToolCallID: item.call.ID,
 				Content:    result.Value,
@@ -473,9 +483,6 @@ func (l *Local) handleToolCalls(ctx context.Context, params toolCallParams) (api
 			Sender:    params.agent.Name(),
 			Timestamp: strfmt.DateTime(time.Now()),
 		})
-		if perr != nil {
-			return nil, perr
-		}
 	}
 
 	return nil, nil

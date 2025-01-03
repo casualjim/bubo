@@ -2,12 +2,13 @@ package bubo
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"slices"
 
+	"github.com/alphadose/haxmap"
 	"github.com/casualjim/bubo/api"
 	"github.com/casualjim/bubo/events"
-	"github.com/casualjim/bubo/internal/broker"
 	"github.com/casualjim/bubo/internal/executor"
 	"github.com/casualjim/bubo/internal/shorttermmemory"
 	"github.com/casualjim/bubo/messages"
@@ -16,50 +17,49 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-type Step[T any] struct {
-	owlName  string            //nolint:unused // Reserved for future use
-	task     string            //nolint:unused // Reserved for future use
-	executor executor.Executor //nolint:unused // Reserved for future use
+type ConversationStep struct {
+	owlName string
+	task    string
 }
 
-func (s *Step[T]) step() {}
-
-type step interface { //nolint:unused // Reserved for future use
-	step()
+func Step(owlName string, task string) ConversationStep {
+	return ConversationStep{
+		owlName: owlName,
+		task:    task,
+	}
 }
 
 type Parliament struct {
-	owls  []api.Owl
-	steps []step //nolint:unused // Reserved for future use
+	owls  *haxmap.Map[string, api.Owl]
+	steps []ConversationStep
 }
 
-func WithOwls(owl api.Owl, extraOwls ...api.Owl) opts.Option[Parliament] {
+func Owls(owl api.Owl, extraOwls ...api.Owl) opts.Option[Parliament] {
 	return opts.Type[Parliament](func(o *Parliament) error {
-		o.owls = append(o.owls, owl)
-		o.owls = append(o.owls, extraOwls...)
+		o.owls.Set(owl.Name(), owl)
+		for elem := range slices.Values(extraOwls) {
+			o.owls.Set(elem.Name(), elem)
+		}
 		return nil
 	})
 }
 
-func WithStep(owlName string, task string) opts.Option[Parliament] {
+func Steps(step ConversationStep, extraSteps ...ConversationStep) opts.Option[Parliament] {
 	return opts.Type[Parliament](func(o *Parliament) error {
+		o.steps = append(o.steps, step)
+		o.steps = append(o.steps, extraSteps...)
 		return nil
 	})
 }
 
 func New(options ...opts.Option[Parliament]) *Parliament {
-	p := &Parliament{}
+	p := &Parliament{
+		owls: haxmap.New[string, api.Owl](),
+	}
 	if err := opts.Apply(p, options); err != nil {
 		panic(err)
 	}
 	return p
-}
-
-func WithStructuredOutput[T any](output T) opts.Option[executor.RunCommand] {
-	return opts.Type[executor.RunCommand](func(o *executor.RunCommand) error {
-		o.ResponseSchema = jsonSchema[T]()
-		return nil
-	})
 }
 
 func jsonSchema[T any]() *jsonschema.Schema {
@@ -76,44 +76,66 @@ func jsonSchema[T any]() *jsonschema.Schema {
 	return schema
 }
 
-type RunConfig struct {
+type ExecutionContext struct {
 	executor       executor.Executor
-	createCommand  func(api.Owl, *shorttermmemory.Aggregator) (executor.RunCommand, error)
+	hook           events.Hook
 	promise        executor.Promise
 	responseSchema *jsonschema.Schema
 }
 
-// can't type alias this (yet) because of the type parameter
+func (e *ExecutionContext) createCommand(owl api.Owl, mem *shorttermmemory.Aggregator) (executor.RunCommand, error) {
+	return executor.NewRunCommand(owl, mem, e.hook)
+}
 
 type Future[T any] interface {
+	// can't type alias this (yet) because of the type parameter
+
 	Get() (T, error)
 }
 
-func Local[T any](hook Hook[T]) (Future[T], RunConfig) {
+func Local[T any](hook Hook[T]) ExecutionContext {
 	fut := executor.NewFuture(executor.DefaultUnmarshal[T]())
-
-	return fut, RunConfig{
-		executor:       executor.NewLocal(broker.Local()),
-		promise:        fut,
+	go func() {
+		val, err := fut.Get()
+		if err != nil {
+			hook.OnError(context.Background(), err)
+			return
+		}
+		hook.OnResult(context.Background(), val)
+	}()
+	return ExecutionContext{
+		executor:       executor.NewLocal(),
 		responseSchema: jsonSchema[T](),
-		createCommand: func(o api.Owl, a *shorttermmemory.Aggregator) (executor.RunCommand, error) {
-			return executor.NewRunCommand(o, a, hook)
-		},
+		hook:           hook,
+		promise:        fut,
 	}
 }
 
-func (p *Parliament) Run(ctx context.Context, prompt string, rc RunConfig) error {
-	state := shorttermmemory.New()
-	for owl := range slices.Values(p.owls) {
-		state.AddUserPrompt(messages.New().UserPrompt(prompt))
-		cmd, err := rc.createCommand(owl, state)
-		if err != nil {
+func (p *Parliament) Run(ctx context.Context, rc ExecutionContext) error {
+	for _, step := range p.steps {
+		if err := p.runStep(ctx, step.owlName, step.task, rc); err != nil {
 			return err
 		}
+	}
+	return nil
+}
 
-		if err := rc.executor.Run(ctx, cmd, rc.promise); err != nil {
-			return err
-		}
+func (p *Parliament) runStep(ctx context.Context, owlName, prompt string, rc ExecutionContext) error {
+	owl, found := p.owls.Get(owlName)
+	if !found {
+		return fmt.Errorf("owl %s not found", owlName)
+	}
+
+	state := shorttermmemory.New()
+
+	state.AddUserPrompt(messages.New().UserPrompt(prompt))
+	cmd, err := rc.createCommand(owl, state)
+	if err != nil {
+		return err
+	}
+
+	if err := rc.executor.Run(ctx, cmd, rc.promise); err != nil {
+		return err
 	}
 	return nil
 }
@@ -121,4 +143,67 @@ func (p *Parliament) Run(ctx context.Context, prompt string, rc RunConfig) error
 type Hook[T any] interface {
 	events.Hook
 	OnResult(ctx context.Context, result T)
+}
+
+func HookFuture[T any](hook Hook[T]) (Hook[T], Future[T]) {
+	fhook := &hookFuture[T]{
+		inner: hook,
+	}
+
+	fut := executor.NewFuture(executor.DefaultUnmarshal[T]())
+	go func() {
+		result, err := fut.Get()
+		if err != nil {
+			hook.OnError(context.Background(), err)
+			return
+		}
+		hook.OnResult(context.Background(), result)
+	}()
+	fhook.fut = fut
+	return fhook, fhook.fut
+}
+
+type hookFuture[T any] struct {
+	inner Hook[T]
+	fut   executor.CompletableFuture[T]
+}
+
+func (f *hookFuture[T]) OnUserPrompt(ctx context.Context, msg messages.Message[messages.UserMessage]) {
+	f.inner.OnUserPrompt(ctx, msg)
+}
+
+func (f *hookFuture[T]) OnAssistantChunk(ctx context.Context, msg messages.Message[messages.AssistantMessage]) {
+	f.inner.OnAssistantChunk(ctx, msg)
+}
+
+func (f *hookFuture[T]) OnToolCallChunk(ctx context.Context, msg messages.Message[messages.ToolCallMessage]) {
+	f.inner.OnToolCallChunk(ctx, msg)
+}
+
+func (f *hookFuture[T]) OnAssistantMessage(ctx context.Context, msg messages.Message[messages.AssistantMessage]) {
+	f.inner.OnAssistantMessage(ctx, msg)
+}
+
+func (f *hookFuture[T]) OnToolCallMessage(ctx context.Context, msg messages.Message[messages.ToolCallMessage]) {
+	f.inner.OnToolCallMessage(ctx, msg)
+}
+
+func (f *hookFuture[T]) OnToolCallResponse(ctx context.Context, msg messages.Message[messages.ToolResponse]) {
+	f.inner.OnToolCallResponse(ctx, msg)
+}
+
+func (f *hookFuture[T]) OnError(ctx context.Context, err error) {
+	f.inner.OnError(ctx, err)
+}
+
+func (f *hookFuture[T]) OnResult(ctx context.Context, result T) {
+	f.inner.OnResult(ctx, result)
+}
+
+func (f hookFuture[T]) AsFuture() Future[T] {
+	return f.fut
+}
+
+type AsFuture[T any] interface {
+	AsFuture() Future[T]
 }

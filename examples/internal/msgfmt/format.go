@@ -48,10 +48,11 @@ func printStreamingMessages[T any](ctx context.Context, w io.Writer, events <-ch
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case event, ok := <-events:
+		case _, ok := <-doneC:
 			if !ok {
 				return nil
 			}
+		case event, ok := <-events:
 
 			switch e := event.(type) {
 			case buboevents.Delim:
@@ -88,9 +89,15 @@ func printStreamingMessages[T any](ctx context.Context, w io.Writer, events <-ch
 						fmt.Fprintf(w, "%s%s\n", color.YellowString(tc.Name), args)
 					}
 				}
+			case buboevents.Result[T]:
+				doneC <- e.Result
 			case buboevents.Error:
 				fmt.Fprintf(w, "Error: %v\n", e.Err)
+			}
+
+			if !ok {
 				close(doneC)
+				return nil
 			}
 		}
 	}

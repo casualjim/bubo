@@ -3,12 +3,9 @@ package executor
 import (
 	"context"
 	"math"
-	"sync"
 	"testing"
 	"time"
 
-	"github.com/casualjim/bubo/events"
-	pubsub "github.com/casualjim/bubo/internal/broker"
 	"github.com/casualjim/bubo/internal/shorttermmemory"
 	"github.com/casualjim/bubo/messages"
 	"github.com/casualjim/bubo/provider"
@@ -40,20 +37,10 @@ func TestNewRunCommand(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		// Create channels for synchronization
-		subscribed := make(chan struct{})
-		providerReady := make(chan struct{})
-		responseCh := make(chan provider.StreamEvent)
-
-		// Set up the mock provider with a controlled ChatCompletion
-		var hookCalled sync.Once
+		// Set up test components
+		responseCh := make(chan provider.StreamEvent, 1)
 		prov := &mockProvider{
 			streamCh: responseCh,
-			chatCompletionHook: func() {
-				hookCalled.Do(func() {
-					close(providerReady)
-				})
-			},
 		}
 
 		agent := &mockAgent{
@@ -69,20 +56,7 @@ func TestNewRunCommand(t *testing.T) {
 		assert.Equal(t, thread, cmd.Thread)
 		assert.Equal(t, hook, cmd.Hook)
 
-		// Set up the mock topic with subscription signaling
-		topic := &mockTopic{
-			eventsChan: make(chan events.Event, 100),
-			subscribe: func(ctx context.Context, hook events.Hook) (pubsub.Subscription, error) {
-				close(subscribed)
-				return &mockSubscription{}, nil
-			},
-		}
-		broker := newMockBroker()
-		broker.topics = map[string]*mockTopic{
-			cmd.ID().String(): topic,
-		}
-
-		local := NewLocal(broker)
+		local := NewLocal()
 		promise := NewFuture[gjson.Result](DefaultUnmarshal[gjson.Result]())
 
 		// Start the execution in a goroutine
@@ -91,34 +65,15 @@ func TestNewRunCommand(t *testing.T) {
 			errCh <- local.Run(ctx, cmd, promise)
 		}()
 
-		// Wait for subscription and provider setup
-		select {
-		case <-subscribed:
-		case <-ctx.Done():
-			t.Fatal("timeout waiting for subscription")
-		}
-
-		select {
-		case <-providerReady:
-		case <-ctx.Done():
-			t.Fatal("timeout waiting for provider")
-		}
-
 		// Send a valid JSON response
-		select {
-		case responseCh <- provider.Response[messages.AssistantMessage]{
+		responseCh <- provider.Response[messages.AssistantMessage]{
 			Response: messages.AssistantMessage{
 				Content: messages.AssistantContentOrParts{
 					Content: `{"result": "test"}`,
 				},
 			},
 			Checkpoint: shorttermmemory.New().Checkpoint(),
-		}:
-		case <-ctx.Done():
-			t.Fatal("timeout sending response")
 		}
-
-		// Close response channel after sending
 		close(responseCh)
 
 		// Check for Run errors
@@ -167,20 +122,10 @@ func TestNewRunCommand(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		// Create channels for synchronization
-		subscribed := make(chan struct{})
-		providerReady := make(chan struct{})
-		responseCh := make(chan provider.StreamEvent)
-
-		// Set up the mock provider with a controlled ChatCompletion
-		var hookCalled sync.Once
+		// Set up test components
+		responseCh := make(chan provider.StreamEvent, 1)
 		prov := &mockProvider{
 			streamCh: responseCh,
-			chatCompletionHook: func() {
-				hookCalled.Do(func() {
-					close(providerReady)
-				})
-			},
 		}
 
 		agent := &mockAgent{
@@ -192,20 +137,7 @@ func TestNewRunCommand(t *testing.T) {
 		cmd, err := NewRunCommand(agent, thread, hook)
 		require.NoError(t, err)
 
-		// Set up the mock topic with subscription signaling
-		topic := &mockTopic{
-			eventsChan: make(chan events.Event, 100),
-			subscribe: func(ctx context.Context, hook events.Hook) (pubsub.Subscription, error) {
-				close(subscribed)
-				return &mockSubscription{}, nil
-			},
-		}
-		broker := newMockBroker()
-		broker.topics = map[string]*mockTopic{
-			cmd.ID().String(): topic,
-		}
-
-		local := NewLocal(broker)
+		local := NewLocal()
 		promise := NewFuture[testResponse](DefaultUnmarshal[testResponse]())
 
 		// Start the execution in a goroutine
@@ -214,34 +146,15 @@ func TestNewRunCommand(t *testing.T) {
 			errCh <- local.Run(ctx, cmd, promise)
 		}()
 
-		// Wait for subscription and provider setup
-		select {
-		case <-subscribed:
-		case <-ctx.Done():
-			t.Fatal("timeout waiting for subscription")
-		}
-
-		select {
-		case <-providerReady:
-		case <-ctx.Done():
-			t.Fatal("timeout waiting for provider")
-		}
-
 		// Send a valid JSON response
-		select {
-		case responseCh <- provider.Response[messages.AssistantMessage]{
+		responseCh <- provider.Response[messages.AssistantMessage]{
 			Response: messages.AssistantMessage{
 				Content: messages.AssistantContentOrParts{
 					Content: `{"message": "test"}`,
 				},
 			},
 			Checkpoint: shorttermmemory.New().Checkpoint(),
-		}:
-		case <-ctx.Done():
-			t.Fatal("timeout sending response")
 		}
-
-		// Close response channel after sending
 		close(responseCh)
 
 		// Check for Run errors
@@ -259,30 +172,17 @@ func TestNewRunCommand(t *testing.T) {
 	})
 
 	t.Run("unmarshaler fails with invalid json for regular struct", func(t *testing.T) {
-		// Create a context with timeout for the entire test
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		// Create channels for synchronization
-		subscribed := make(chan struct{})
-		providerReady := make(chan struct{})
-		responseCh := make(chan provider.StreamEvent)
-
-		// Set up the mock provider with a controlled ChatCompletion
-		var hookCalled sync.Once
-		mockProv := &mockProvider{
+		// Set up test components
+		responseCh := make(chan provider.StreamEvent, 1)
+		prov := &mockProvider{
 			streamCh: responseCh,
-			chatCompletionHook: func() {
-				hookCalled.Do(func() {
-					close(providerReady)
-				})
-			},
 		}
 
 		agent := &mockAgent{
-			testModel: testModel{
-				provider: mockProv,
-			},
+			testModel: testModel{provider: prov},
 		}
 		thread := shorttermmemory.New()
 		hook := &mockHook{}
@@ -290,55 +190,24 @@ func TestNewRunCommand(t *testing.T) {
 		cmd, err := NewRunCommand(agent, thread, hook)
 		require.NoError(t, err)
 
-		// Set up the mock topic with subscription signaling
-		topic := &mockTopic{
-			eventsChan: make(chan events.Event, 100),
-			subscribe: func(ctx context.Context, hook events.Hook) (pubsub.Subscription, error) {
-				close(subscribed)
-				return &mockSubscription{}, nil
-			},
-		}
-		broker := newMockBroker()
-		broker.topics = map[string]*mockTopic{
-			cmd.ID().String(): topic,
-		}
-		local := NewLocal(broker)
+		local := NewLocal()
 		promise := NewFuture[testResponse](DefaultUnmarshal[testResponse]())
 
-		// Start the execution in a goroutine to avoid blocking
+		// Start the execution in a goroutine
 		errCh := make(chan error, 1)
 		go func() {
 			errCh <- local.Run(ctx, cmd, promise)
 		}()
 
-		// Wait for subscription and provider setup
-		select {
-		case <-subscribed:
-		case <-ctx.Done():
-			t.Fatal("timeout waiting for subscription")
-		}
-
-		select {
-		case <-providerReady:
-		case <-ctx.Done():
-			t.Fatal("timeout waiting for provider")
-		}
-
-		// Send the invalid JSON response
-		select {
-		case responseCh <- provider.Response[messages.AssistantMessage]{
+		// Send an invalid JSON response
+		responseCh <- provider.Response[messages.AssistantMessage]{
 			Response: messages.AssistantMessage{
 				Content: messages.AssistantContentOrParts{
 					Content: `{"invalid": json}`,
 				},
 			},
 			Checkpoint: shorttermmemory.New().Checkpoint(),
-		}:
-		case <-ctx.Done():
-			t.Fatal("timeout sending response")
 		}
-
-		// Close response channel after sending
 		close(responseCh)
 
 		// Check for Run errors

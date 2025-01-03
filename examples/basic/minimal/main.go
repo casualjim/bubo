@@ -27,26 +27,23 @@ func init() {
 	))
 }
 
+var minimalOwl = owl.New(owl.Name("minimal-owl"), owl.Model(openai.GPT4oMini()), owl.Instructions("You are a helpful assistant"))
+
 func main() {
 	slog.Info("running basic/minimal example")
 	ctx := context.Background()
 
-	hook, _ := msgfmt.Console[string](ctx, os.Stdout)
+	hook, result := msgfmt.Console[string](ctx, os.Stdout)
 	p := bubo.New(
-		bubo.WithOwls(
-			owl.New(owl.Name("minimal-agent"), owl.Model(openai.GPT4oMini()), owl.Instructions("You are a helpful assistant")),
+		bubo.Owls(minimalOwl),
+		bubo.Steps(
+			bubo.Step(minimalOwl.Name(), "What is the answer to the ultimate question of life, the universe, and everything?"),
 		),
 	)
-	fut, config := bubo.Local(hook)
-	if err := p.Run(ctx, "Hello, world!", config); err != nil {
+	if err := p.Run(ctx, bubo.Local(hook)); err != nil {
 		slog.Error("failed to run bubo", slogx.Error(err))
 		return
 	}
 
-	success, err := fut.Get()
-	if err != nil {
-		slog.Error("failed to get result", slogx.Error(err))
-		return
-	}
-	fmt.Println(success)
+	fmt.Println(<-result)
 }

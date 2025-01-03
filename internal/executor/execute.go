@@ -12,7 +12,6 @@ import (
 
 	"github.com/casualjim/bubo/api"
 	"github.com/casualjim/bubo/events"
-	"github.com/casualjim/bubo/internal/broker"
 	"github.com/casualjim/bubo/internal/shorttermmemory"
 	"github.com/casualjim/bubo/pkg/stdx"
 	"github.com/casualjim/bubo/pkg/uuidx"
@@ -235,6 +234,6 @@ func (f *future[T]) Error(err error) {
 
 type Executor interface {
 	Run(context.Context, RunCommand, Promise) error
-	Topic(context.Context, string) broker.Topic
+	// Topic(context.Context, string) broker.Topic
 	handleToolCalls(ctx context.Context, params toolCallParams) (api.Owl, error)
 }

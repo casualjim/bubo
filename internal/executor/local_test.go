@@ -5,18 +5,13 @@ import (
 	"encoding"
 	"fmt"
 	"reflect"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/casualjim/bubo/api"
-	"github.com/casualjim/bubo/events"
-	"github.com/casualjim/bubo/internal/broker"
 	"github.com/casualjim/bubo/internal/shorttermmemory"
 	"github.com/casualjim/bubo/messages"
-	"github.com/casualjim/bubo/pkg/stdx"
 	"github.com/casualjim/bubo/pkg/uuidx"
-	"github.com/casualjim/bubo/provider"
 	"github.com/casualjim/bubo/tool"
 	"github.com/casualjim/bubo/types"
 	"github.com/stretchr/testify/assert"
@@ -172,8 +167,7 @@ func TestCallFunction(t *testing.T) {
 
 func TestHandleToolCalls(t *testing.T) {
 	t.Run("basic tool call", func(t *testing.T) {
-		broker := newMockBroker()
-		l := NewLocal(broker)
+		l := NewLocal()
 		agent := newTestAgent()
 
 		runID := uuidx.New()
@@ -182,6 +176,7 @@ func TestHandleToolCalls(t *testing.T) {
 			agent:       agent,
 			contextVars: types.ContextVars{},
 			mem:         shorttermmemory.New(),
+			hook:        &mockHook{},
 			toolCalls: messages.ToolCallMessage{
 				ToolCalls: []messages.ToolCallData{
 					{
@@ -190,7 +185,6 @@ func TestHandleToolCalls(t *testing.T) {
 					},
 				},
 			},
-			topic: broker.Topic(context.Background(), runID.String()),
 		}
 
 		nextAgent, err := l.handleToolCalls(context.Background(), params)
@@ -199,8 +193,7 @@ func TestHandleToolCalls(t *testing.T) {
 	})
 
 	t.Run("agent transfer before regular tools", func(t *testing.T) {
-		broker := newMockBroker()
-		l := NewLocal(broker)
+		l := NewLocal()
 
 		nextTestAgent := newTestAgent()
 		nextTestAgent.testName = "next_agent"
@@ -232,6 +225,7 @@ func TestHandleToolCalls(t *testing.T) {
 			runID: runID,
 			agent: agent,
 			mem:   shorttermmemory.New(),
+			hook:  &mockHook{},
 			toolCalls: messages.ToolCallMessage{
 				ToolCalls: []messages.ToolCallData{
 					{
@@ -244,7 +238,6 @@ func TestHandleToolCalls(t *testing.T) {
 					},
 				},
 			},
-			topic: broker.Topic(context.Background(), runID.String()),
 		}
 
 		nextAgent, err := l.handleToolCalls(context.Background(), params)
@@ -254,8 +247,7 @@ func TestHandleToolCalls(t *testing.T) {
 	})
 
 	t.Run("context variable propagation", func(t *testing.T) {
-		broker := newMockBroker()
-		l := NewLocal(broker)
+		l := NewLocal()
 
 		var toolContextVars types.ContextVars
 		agent := &mockAgent{
@@ -300,6 +292,7 @@ func TestHandleToolCalls(t *testing.T) {
 			runID: runID,
 			agent: agent,
 			mem:   shorttermmemory.New(),
+			hook:  &mockHook{},
 			toolCalls: messages.ToolCallMessage{
 				ToolCalls: []messages.ToolCallData{
 					{
@@ -312,7 +305,6 @@ func TestHandleToolCalls(t *testing.T) {
 					},
 				},
 			},
-			topic: broker.Topic(context.Background(), runID.String()),
 		}
 
 		nextAgent, err := l.handleToolCalls(context.Background(), params)
@@ -322,350 +314,15 @@ func TestHandleToolCalls(t *testing.T) {
 	})
 }
 
-func TestRun(t *testing.T) {
-	t.Run("model forwarding to provider", func(t *testing.T) {
-		// Create a context with timeout for the entire test
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		testBroker := newMockBroker()
-		local := NewLocal(testBroker)
-
-		agent := newTestAgent()
-		thread := shorttermmemory.New()
-		hook := &mockHook{}
-
-		// Create channels for synchronization
-		subscribed := make(chan struct{})
-		providerReady := make(chan struct{})
-		responseCh := make(chan provider.StreamEvent)
-
-		// Set up the mock provider with a controlled ChatCompletion
-		var hookCalled sync.Once
-		prov := &mockProvider{
-			streamCh: responseCh,
-			chatCompletionHook: func() {
-				hookCalled.Do(func() {
-					close(providerReady)
-				})
-			},
-		}
-		agent.testModel = testModel{provider: prov}
-
-		cmd, err := NewRunCommand(agent, thread, hook)
-		require.NoError(t, err)
-
-		// Set up the mock topic with subscription signaling
-		topic := &mockTopic{
-			eventsChan: make(chan events.Event, 100),
-			subscribe: func(ctx context.Context, hook events.Hook) (broker.Subscription, error) {
-				close(subscribed)
-				return &mockSubscription{}, nil
-			},
-		}
-		testBroker.topics = map[string]*mockTopic{
-			cmd.ID().String(): topic,
-		}
-
-		promise := NewFuture[string](DefaultUnmarshal[string]())
-
-		// Start the execution in a goroutine
-		errCh := make(chan error, 1)
-		go func() {
-			errCh <- local.Run(ctx, cmd, promise)
-		}()
-
-		// Wait for subscription and provider setup with timeouts
-		select {
-		case <-subscribed:
-		case <-ctx.Done():
-			t.Fatal("timeout waiting for subscription")
-		}
-
-		select {
-		case <-providerReady:
-		case <-ctx.Done():
-			t.Fatal("timeout waiting for provider")
-		}
-
-		// Send the response with timeout
-		select {
-		case responseCh <- provider.Response[messages.AssistantMessage]{
-			Response: messages.AssistantMessage{
-				Content: messages.AssistantContentOrParts{
-					Content: "test result",
-				},
-			},
-			Checkpoint: shorttermmemory.New().Checkpoint(),
-		}:
-		case <-ctx.Done():
-			t.Fatal("timeout sending response")
-		}
-
-		// Close response channel after sending
-		close(responseCh)
-
-		// Check for Run errors
-		select {
-		case err := <-errCh:
-			require.NoError(t, err, "unexpected error from Run")
-		case <-ctx.Done():
-			t.Fatal("timeout waiting for Run completion")
-		}
-
-		// Wait for the promise result
-		result, err := promise.Get()
-		require.NoError(t, err)
-		assert.Equal(t, "test result", result)
-
-		// Verify the model was properly forwarded to the provider
-		assert.NotNil(t, prov.lastParams.Model, "Model should not be nil in provider params")
-		assert.Equal(t, agent.Model(), prov.lastParams.Model, "Model in provider params should match agent's model")
-	})
-
-	t.Run("successful completion", func(t *testing.T) {
-		// Create a context with timeout for the entire test
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		testBroker := newMockBroker()
-		local := NewLocal(testBroker)
-
-		agent := newTestAgent()
-		thread := shorttermmemory.New()
-		hook := &mockHook{}
-
-		// Create channels for synchronization
-		subscribed := make(chan struct{})
-		providerReady := make(chan struct{})
-		responseCh := make(chan provider.StreamEvent)
-
-		// Set up the mock provider with a controlled ChatCompletion
-		var hookCalled sync.Once
-		prov := &mockProvider{
-			streamCh: responseCh,
-			chatCompletionHook: func() {
-				hookCalled.Do(func() {
-					close(providerReady)
-				})
-			},
-		}
-		agent.testModel = testModel{provider: prov}
-
-		cmd, err := NewRunCommand(agent, thread, hook)
-		require.NoError(t, err)
-
-		// Set up the mock topic with subscription signaling
-		topic := &mockTopic{
-			eventsChan: make(chan events.Event, 100),
-			subscribe: func(ctx context.Context, hook events.Hook) (broker.Subscription, error) {
-				close(subscribed)
-				return &mockSubscription{}, nil
-			},
-		}
-		testBroker.topics = map[string]*mockTopic{
-			cmd.ID().String(): topic,
-		}
-
-		promise := NewFuture[string](DefaultUnmarshal[string]())
-
-		// Start the execution in a goroutine
-		errCh := make(chan error, 1)
-		go func() {
-			errCh <- local.Run(ctx, cmd, promise)
-		}()
-
-		// Wait for subscription and provider setup with timeouts
-		select {
-		case <-subscribed:
-		case <-ctx.Done():
-			t.Fatal("timeout waiting for subscription")
-		}
-
-		select {
-		case <-providerReady:
-		case <-ctx.Done():
-			t.Fatal("timeout waiting for provider")
-		}
-
-		// Send the response with timeout
-		select {
-		case responseCh <- provider.Response[messages.AssistantMessage]{
-			Response: messages.AssistantMessage{
-				Content: messages.AssistantContentOrParts{
-					Content: "test result",
-				},
-			},
-			Checkpoint: shorttermmemory.New().Checkpoint(),
-		}:
-		case <-ctx.Done():
-			t.Fatal("timeout sending response")
-		}
-
-		// Close response channel after sending
-		close(responseCh)
-
-		// Check for Run errors
-		select {
-		case err := <-errCh:
-			require.NoError(t, err, "unexpected error from Run")
-		case <-ctx.Done():
-			t.Fatal("timeout waiting for Run completion")
-		}
-
-		// Wait for the promise result
-		result, err := promise.Get()
-		require.NoError(t, err)
-		assert.Equal(t, "test result", result)
-	})
-
-	t.Run("provider error", func(t *testing.T) {
-		// Create a context with timeout for the entire test
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		testBroker := newMockBroker()
-		local := NewLocal(testBroker)
-
-		agent := newTestAgent()
-		thread := shorttermmemory.New()
-		hook := &mockHook{}
-
-		// Create channels for synchronization
-		subscribed := make(chan struct{})
-		providerReady := make(chan struct{})
-		responseCh := make(chan provider.StreamEvent)
-
-		// Set up the mock provider with a controlled ChatCompletion
-		var hookCalled sync.Once
-		prov := &mockProvider{
-			streamCh: responseCh,
-			chatCompletionHook: func() {
-				hookCalled.Do(func() {
-					close(providerReady)
-				})
-			},
-		}
-		agent.testModel = testModel{provider: prov}
-
-		cmd, err := NewRunCommand(agent, thread, hook)
-		require.NoError(t, err)
-
-		// Set up the mock topic with subscription signaling
-		topic := &mockTopic{
-			eventsChan: make(chan events.Event, 100),
-			subscribe: func(ctx context.Context, hook events.Hook) (broker.Subscription, error) {
-				close(subscribed)
-				return &mockSubscription{}, nil
-			},
-		}
-		testBroker.topics = map[string]*mockTopic{
-			cmd.ID().String(): topic,
-		}
-
-		promise := NewFuture[string](DefaultUnmarshal[string]())
-
-		// Start the execution in a goroutine
-		errCh := make(chan error, 1)
-		go func() {
-			errCh <- local.Run(ctx, cmd, promise)
-		}()
-
-		// Wait for subscription and provider setup with timeouts
-		select {
-		case <-subscribed:
-		case <-ctx.Done():
-			t.Fatal("timeout waiting for subscription")
-		}
-
-		select {
-		case <-providerReady:
-		case <-ctx.Done():
-			t.Fatal("timeout waiting for provider")
-		}
-
-		// Send the error with timeout
-		select {
-		case responseCh <- provider.Error{
-			Err: fmt.Errorf("provider error"),
-		}:
-		case <-ctx.Done():
-			t.Fatal("timeout sending error")
-		}
-
-		// Close response channel after sending
-		close(responseCh)
-
-		// Check for Run errors
-		select {
-		case err := <-errCh:
-			require.Error(t, err, "expected error from Run")
-			assert.Contains(t, err.Error(), "provider error")
-		case <-ctx.Done():
-			t.Fatal("timeout waiting for Run completion")
-		}
-
-		// Wait for the promise result
-		result, err := promise.Get()
-		assert.Error(t, err, "expected error from promise")
-		assert.Contains(t, err.Error(), "provider error")
-		assert.Equal(t, result, stdx.Zero[string]())
-	})
-}
-
-func TestNewLocal(t *testing.T) {
-	t.Run("nil broker", func(t *testing.T) {
-		assert.Panics(t, func() {
-			NewLocal(nil)
-		})
-	})
-
-	t.Run("valid broker", func(t *testing.T) {
-		broker := newMockBroker()
-		local := NewLocal(broker)
-		assert.NotNil(t, local)
-	})
-}
-
-func TestWrapErr(t *testing.T) {
-	t.Run("nil error", func(t *testing.T) {
-		_, hasErr := wrapErr(uuidx.New(), uuidx.New(), "test", nil)
-		assert.False(t, hasErr, "should return false for nil error")
-	})
-
-	t.Run("existing events.Error", func(t *testing.T) {
-		existingErr := events.Error{
-			Err: fmt.Errorf("test error"),
-		}
-		wrappedErr, hasErr := wrapErr(uuidx.New(), uuidx.New(), "test", existingErr)
-		assert.True(t, hasErr, "should return true for existing error")
-		assert.Equal(t, existingErr, wrappedErr, "should return the same error")
-	})
-
-	t.Run("new error", func(t *testing.T) {
-		runID := uuidx.New()
-		turnID := uuidx.New()
-		sender := "test"
-		err := fmt.Errorf("test error")
-
-		wrappedErr, hasErr := wrapErr(runID, turnID, sender, err)
-		assert.True(t, hasErr, "should return true for new error")
-		assert.Equal(t, runID, wrappedErr.RunID)
-		assert.Equal(t, turnID, wrappedErr.TurnID)
-		assert.Equal(t, sender, wrappedErr.Sender)
-		assert.Equal(t, err, wrappedErr.Err)
-	})
-}
-
 func TestHandleToolCallsErrors(t *testing.T) {
-	broker := newMockBroker()
-	l := NewLocal(broker)
+	l := NewLocal()
 
 	runID := uuidx.New()
 	params := toolCallParams{
 		runID: runID,
 		agent: newTestAgent(),
 		mem:   shorttermmemory.New(),
+		hook:  &mockHook{},
 		toolCalls: messages.ToolCallMessage{
 			ToolCalls: []messages.ToolCallData{
 				{
@@ -674,7 +331,6 @@ func TestHandleToolCallsErrors(t *testing.T) {
 				},
 			},
 		},
-		topic: broker.Topic(context.Background(), runID.String()),
 	}
 
 	_, err := l.handleToolCalls(context.Background(), params)
@@ -683,8 +339,7 @@ func TestHandleToolCallsErrors(t *testing.T) {
 }
 
 func TestHandleToolCallsWithContextVars(t *testing.T) {
-	broker := newMockBroker()
-	l := NewLocal(broker)
+	l := NewLocal()
 
 	contextVars := types.ContextVars{"test": "value"}
 	agent := newTestAgent()
@@ -697,12 +352,21 @@ func TestHandleToolCallsWithContextVars(t *testing.T) {
 		},
 	}
 
+	// Create a channel to capture the tool response
+	responseReceived := make(chan string, 1)
+	hook := &mockHook{
+		onToolCallResponse: func(ctx context.Context, msg messages.Message[messages.ToolResponse]) {
+			responseReceived <- msg.Payload.Content
+		},
+	}
+
 	runID := uuidx.New()
 	params := toolCallParams{
 		runID:       runID,
 		agent:       agent,
 		contextVars: contextVars,
 		mem:         shorttermmemory.New(),
+		hook:        hook,
 		toolCalls: messages.ToolCallMessage{
 			ToolCalls: []messages.ToolCallData{
 				{
@@ -711,27 +375,23 @@ func TestHandleToolCallsWithContextVars(t *testing.T) {
 				},
 			},
 		},
-		topic: broker.Topic(context.Background(), runID.String()),
 	}
 
 	nextAgent, err := l.handleToolCalls(context.Background(), params)
 	require.NoError(t, err)
 	assert.Nil(t, nextAgent)
 
-	// Wait for tool response
-	event, err := broker.waitForEvent(runID.String(), time.Second, func(e events.Event) bool {
-		if resp, ok := e.(events.Request[messages.ToolResponse]); ok {
-			return resp.Message.Content == "value"
-		}
-		return false
-	})
-	require.NoError(t, err)
-	require.NotNil(t, event)
+	// Wait for the response with timeout
+	select {
+	case response := <-responseReceived:
+		assert.Equal(t, "value", response)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for tool response")
+	}
 }
 
 func TestHandleToolCallsWithAgentReturn(t *testing.T) {
-	broker := newMockBroker()
-	l := NewLocal(broker)
+	l := NewLocal()
 
 	nextTestAgent := newTestAgent()
 	nextTestAgent.testName = "next_agent"
@@ -751,6 +411,7 @@ func TestHandleToolCallsWithAgentReturn(t *testing.T) {
 		runID: runID,
 		agent: agent,
 		mem:   shorttermmemory.New(),
+		hook:  &mockHook{},
 		toolCalls: messages.ToolCallMessage{
 			ToolCalls: []messages.ToolCallData{
 				{
@@ -759,7 +420,6 @@ func TestHandleToolCallsWithAgentReturn(t *testing.T) {
 				},
 			},
 		},
-		topic: broker.Topic(context.Background(), runID.String()),
 	}
 
 	nextAgent, err := l.handleToolCalls(context.Background(), params)
@@ -768,8 +428,7 @@ func TestHandleToolCallsWithAgentReturn(t *testing.T) {
 }
 
 func TestHandleToolCallsWithInvalidJSON(t *testing.T) {
-	broker := newMockBroker()
-	l := NewLocal(broker)
+	l := NewLocal()
 
 	agent := newTestAgent()
 	runID := uuidx.New()
@@ -777,6 +436,7 @@ func TestHandleToolCallsWithInvalidJSON(t *testing.T) {
 		runID: runID,
 		agent: agent,
 		mem:   shorttermmemory.New(),
+		hook:  &mockHook{},
 		toolCalls: messages.ToolCallMessage{
 			ToolCalls: []messages.ToolCallData{
 				{
@@ -785,7 +445,6 @@ func TestHandleToolCallsWithInvalidJSON(t *testing.T) {
 				},
 			},
 		},
-		topic: broker.Topic(context.Background(), runID.String()),
 	}
 
 	_, err := l.handleToolCalls(context.Background(), params)
@@ -793,8 +452,7 @@ func TestHandleToolCallsWithInvalidJSON(t *testing.T) {
 }
 
 func TestHandleToolCallsWithMixedTools(t *testing.T) {
-	broker := newMockBroker()
-	l := NewLocal(broker)
+	l := NewLocal()
 
 	var executionOrder []string
 	var contextValue string
@@ -849,6 +507,7 @@ func TestHandleToolCallsWithMixedTools(t *testing.T) {
 			runID: runID,
 			agent: agent,
 			mem:   shorttermmemory.New(),
+			hook:  &mockHook{},
 			toolCalls: messages.ToolCallMessage{
 				ToolCalls: []messages.ToolCallData{
 					{
@@ -861,7 +520,6 @@ func TestHandleToolCallsWithMixedTools(t *testing.T) {
 					},
 				},
 			},
-			topic: broker.Topic(context.Background(), runID.String()),
 		}
 
 		nextAgent, err := l.handleToolCalls(context.Background(), params)
@@ -880,6 +538,7 @@ func TestHandleToolCallsWithMixedTools(t *testing.T) {
 			runID: runID,
 			agent: agent,
 			mem:   shorttermmemory.New(),
+			hook:  &mockHook{},
 			toolCalls: messages.ToolCallMessage{
 				ToolCalls: []messages.ToolCallData{
 					{
@@ -892,7 +551,6 @@ func TestHandleToolCallsWithMixedTools(t *testing.T) {
 					},
 				},
 			},
-			topic: broker.Topic(context.Background(), runID.String()),
 		}
 
 		nextAgent, err := l.handleToolCalls(context.Background(), params)
@@ -912,6 +570,7 @@ func TestHandleToolCallsWithMixedTools(t *testing.T) {
 			runID: runID,
 			agent: agent,
 			mem:   shorttermmemory.New(),
+			hook:  &mockHook{},
 			toolCalls: messages.ToolCallMessage{
 				ToolCalls: []messages.ToolCallData{
 					{
@@ -932,7 +591,6 @@ func TestHandleToolCallsWithMixedTools(t *testing.T) {
 					},
 				},
 			},
-			topic: broker.Topic(context.Background(), runID.String()),
 		}
 
 		nextAgent, err := l.handleToolCalls(context.Background(), params)
@@ -945,8 +603,7 @@ func TestHandleToolCallsWithMixedTools(t *testing.T) {
 }
 
 func TestHandleToolCallsContextPropagation(t *testing.T) {
-	broker := newMockBroker()
-	l := NewLocal(broker)
+	l := NewLocal()
 
 	var toolValues []string
 	agent := &mockAgent{
@@ -992,6 +649,7 @@ func TestHandleToolCallsContextPropagation(t *testing.T) {
 		runID: runID,
 		agent: agent,
 		mem:   shorttermmemory.New(),
+		hook:  &mockHook{},
 		toolCalls: messages.ToolCallMessage{
 			ToolCalls: []messages.ToolCallData{
 				{
@@ -1008,7 +666,6 @@ func TestHandleToolCallsContextPropagation(t *testing.T) {
 				},
 			},
 		},
-		topic: broker.Topic(context.Background(), runID.String()),
 	}
 
 	nextAgent, err := l.handleToolCalls(context.Background(), params)

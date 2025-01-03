@@ -84,9 +84,12 @@ func (a *Aggregator) MessagesIter() iter.Seq[messages.Message[messages.ModelMess
 // while maintaining type safety. The conversion is safe because T is constrained to ModelMessage.
 func eraseType[T messages.ModelMessage](m messages.Message[T]) messages.Message[messages.ModelMessage] {
 	return messages.Message[messages.ModelMessage]{
+		RunID:     m.RunID,
+		TurnID:    m.TurnID,
 		Payload:   m.Payload,
 		Sender:    m.Sender,
 		Timestamp: m.Timestamp,
+		Meta:      m.Meta,
 	}
 }
 
@@ -161,6 +164,10 @@ func (a *Aggregator) add(m messages.Message[messages.ModelMessage]) {
 // detailed breakdowns of token usage by category.
 func (a *Aggregator) Usage() Usage {
 	return a.usage
+}
+
+func (a *Aggregator) AddUsage(u *Usage) {
+	a.usage.AddUsage(u)
 }
 
 // Fork creates a new aggregator that starts with a copy of the current messages.

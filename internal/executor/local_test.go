@@ -12,8 +12,10 @@ import (
 	"github.com/casualjim/bubo/internal/shorttermmemory"
 	"github.com/casualjim/bubo/messages"
 	"github.com/casualjim/bubo/pkg/uuidx"
+	"github.com/casualjim/bubo/provider"
 	"github.com/casualjim/bubo/tool"
 	"github.com/casualjim/bubo/types"
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -222,10 +224,11 @@ func TestHandleToolCalls(t *testing.T) {
 
 		runID := uuidx.New()
 		params := toolCallParams{
-			runID: runID,
-			agent: agent,
-			mem:   shorttermmemory.New(),
-			hook:  &mockHook{},
+			runID:       runID,
+			agent:       agent,
+			mem:         shorttermmemory.New(),
+			hook:        &mockHook{},
+			contextVars: make(types.ContextVars),
 			toolCalls: messages.ToolCallMessage{
 				ToolCalls: []messages.ToolCallData{
 					{
@@ -243,7 +246,7 @@ func TestHandleToolCalls(t *testing.T) {
 		nextAgent, err := l.handleToolCalls(context.Background(), params)
 		require.NoError(t, err)
 		assert.Equal(t, nextTestAgent, nextAgent)
-		assert.Equal(t, []string{"agent_tool"}, executionOrder, "agent tool should execute first and prevent regular tool execution")
+		assert.Equal(t, []string{"regular_tool", "agent_tool"}, executionOrder, "tools should execute in order and return agent from agent tool")
 	})
 
 	t.Run("context variable propagation", func(t *testing.T) {
@@ -289,10 +292,11 @@ func TestHandleToolCalls(t *testing.T) {
 
 		runID := uuidx.New()
 		params := toolCallParams{
-			runID: runID,
-			agent: agent,
-			mem:   shorttermmemory.New(),
-			hook:  &mockHook{},
+			runID:       runID,
+			agent:       agent,
+			mem:         shorttermmemory.New(),
+			hook:        &mockHook{},
+			contextVars: make(types.ContextVars),
 			toolCalls: messages.ToolCallMessage{
 				ToolCalls: []messages.ToolCallData{
 					{
@@ -353,7 +357,7 @@ func TestHandleToolCallsWithContextVars(t *testing.T) {
 	}
 
 	// Create a channel to capture the tool response
-	responseReceived := make(chan string, 1)
+	responseReceived := make(chan string, 10)
 	hook := &mockHook{
 		onToolCallResponse: func(ctx context.Context, msg messages.Message[messages.ToolResponse]) {
 			responseReceived <- msg.Payload.Content
@@ -451,6 +455,91 @@ func TestHandleToolCallsWithInvalidJSON(t *testing.T) {
 	require.NoError(t, err) // Should not error as buildArgList handles invalid JSON gracefully
 }
 
+func TestHandleToolCallsSessionContent(t *testing.T) {
+	l := NewLocal()
+
+	// Create an agent with tools that manipulate context and return values
+	agent := &mockAgent{
+		testName:  "test_agent",
+		testModel: testModel{provider: &mockProvider{}},
+		testTools: []tool.Definition{
+			{
+				Name: "tool1",
+				Function: func() types.ContextVars {
+					cv := types.ContextVars{}
+					cv["key1"] = "value1"
+					return cv
+				},
+			},
+			{
+				Name: "tool2",
+				Function: func(cv types.ContextVars) string {
+					return fmt.Sprintf("got value: %v", cv["key1"])
+				},
+				Parameters: map[string]string{
+					"param0": "cv",
+				},
+			},
+		},
+	}
+
+	runID := uuidx.New()
+	mem := shorttermmemory.New()
+	initialLen := mem.Len()
+
+	params := toolCallParams{
+		runID:       runID,
+		agent:       agent,
+		mem:         mem,
+		hook:        &mockHook{},
+		contextVars: make(types.ContextVars),
+		toolCalls: messages.ToolCallMessage{
+			ToolCalls: []messages.ToolCallData{
+				{
+					ID:        "call1",
+					Name:      "tool1",
+					Arguments: "{}",
+				},
+				{
+					ID:        "call2",
+					Name:      "tool2",
+					Arguments: `{"cv": {}}`,
+				},
+			},
+		},
+	}
+
+	nextAgent, err := l.handleToolCalls(context.Background(), params)
+	require.NoError(t, err)
+	assert.Nil(t, nextAgent)
+
+	// Verify session content
+	msgs := mem.Messages()
+	assert.Equal(t, initialLen+2, len(msgs), "Should have added 2 tool response messages")
+
+	// Verify first tool response
+	msg1 := msgs[initialLen]
+	toolResp1, ok := msg1.Payload.(messages.ToolResponse)
+	require.True(t, ok)
+	assert.Equal(t, "tool1", toolResp1.ToolName)
+	assert.Equal(t, "call1", toolResp1.ToolCallID)
+	assert.Equal(t, "", toolResp1.Content) // Context vars don't produce content
+	assert.Equal(t, runID, msg1.RunID)
+	assert.Equal(t, mem.ID(), msg1.TurnID)
+	assert.Equal(t, "test_agent", msg1.Sender)
+
+	// Verify second tool response
+	msg2 := msgs[initialLen+1]
+	toolResp2, ok := msg2.Payload.(messages.ToolResponse)
+	require.True(t, ok)
+	assert.Equal(t, "tool2", toolResp2.ToolName)
+	assert.Equal(t, "call2", toolResp2.ToolCallID)
+	assert.Equal(t, "got value: value1", toolResp2.Content)
+	assert.Equal(t, runID, msg2.RunID)
+	assert.Equal(t, mem.ID(), msg2.TurnID)
+	assert.Equal(t, "test_agent", msg2.Sender)
+}
+
 func TestHandleToolCallsWithMixedTools(t *testing.T) {
 	l := NewLocal()
 
@@ -504,10 +593,11 @@ func TestHandleToolCallsWithMixedTools(t *testing.T) {
 
 		runID := uuidx.New()
 		params := toolCallParams{
-			runID: runID,
-			agent: agent,
-			mem:   shorttermmemory.New(),
-			hook:  &mockHook{},
+			runID:       runID,
+			agent:       agent,
+			mem:         shorttermmemory.New(),
+			hook:        &mockHook{},
+			contextVars: make(types.ContextVars),
 			toolCalls: messages.ToolCallMessage{
 				ToolCalls: []messages.ToolCallData{
 					{
@@ -535,10 +625,11 @@ func TestHandleToolCallsWithMixedTools(t *testing.T) {
 
 		runID := uuidx.New()
 		params := toolCallParams{
-			runID: runID,
-			agent: agent,
-			mem:   shorttermmemory.New(),
-			hook:  &mockHook{},
+			runID:       runID,
+			agent:       agent,
+			mem:         shorttermmemory.New(),
+			hook:        &mockHook{},
+			contextVars: make(types.ContextVars),
 			toolCalls: messages.ToolCallMessage{
 				ToolCalls: []messages.ToolCallData{
 					{
@@ -567,10 +658,11 @@ func TestHandleToolCallsWithMixedTools(t *testing.T) {
 
 		runID := uuidx.New()
 		params := toolCallParams{
-			runID: runID,
-			agent: agent,
-			mem:   shorttermmemory.New(),
-			hook:  &mockHook{},
+			runID:       runID,
+			agent:       agent,
+			mem:         shorttermmemory.New(),
+			hook:        &mockHook{},
+			contextVars: make(types.ContextVars),
 			toolCalls: messages.ToolCallMessage{
 				ToolCalls: []messages.ToolCallData{
 					{
@@ -596,7 +688,7 @@ func TestHandleToolCallsWithMixedTools(t *testing.T) {
 		nextAgent, err := l.handleToolCalls(context.Background(), params)
 		require.NoError(t, err)
 		assert.NotNil(t, nextAgent)
-		assert.Equal(t, []string{"b_agent_tool"}, executionOrder,
+		assert.Equal(t, []string{"b_regular_tool", "b_agent_tool"}, executionOrder,
 			"should execute first agent tool in received order and stop")
 		assert.Empty(t, contextValue)
 	})
@@ -672,6 +764,436 @@ func TestHandleToolCallsContextPropagation(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, nextAgent)
 	assert.Equal(t, []string{"value1", "updated", "value2"}, toolValues, "context variables should propagate and update correctly")
+}
+
+func TestHandleToolCallsSessionFork(t *testing.T) {
+	l := NewLocal()
+
+	// Create an agent with a tool that modifies the session
+	agent := &mockAgent{
+		testName:  "test_agent",
+		testModel: testModel{provider: &mockProvider{}},
+		testTools: []tool.Definition{
+			{
+				Name: "modify_session",
+				Function: func() string {
+					return "test response"
+				},
+			},
+		},
+	}
+
+	// Create a session with initial content
+	mem := shorttermmemory.New()
+	mem.AddUserPrompt(messages.Message[messages.UserMessage]{
+		RunID:     uuidx.New(),
+		TurnID:    mem.ID(),
+		Sender:    "user",
+		Timestamp: strfmt.DateTime(time.Now()),
+		Payload:   messages.UserMessage{Content: messages.ContentOrParts{Content: "initial message"}},
+	})
+	initialLen := mem.Len()
+
+	runID := uuidx.New()
+	params := toolCallParams{
+		runID: runID,
+		agent: agent,
+		mem:   mem,
+		hook:  &mockHook{},
+		toolCalls: messages.ToolCallMessage{
+			ToolCalls: []messages.ToolCallData{
+				{
+					ID:        "call1",
+					Name:      "modify_session",
+					Arguments: "{}",
+				},
+			},
+		},
+	}
+
+	nextAgent, err := l.handleToolCalls(context.Background(), params)
+	require.NoError(t, err)
+	assert.Nil(t, nextAgent)
+
+	// Verify original session
+	msgs := mem.Messages()
+	assert.Equal(t, initialLen+1, len(msgs), "Should have added 1 tool response message")
+
+	// Verify the initial message is preserved
+	msg1 := msgs[0]
+	userMsg, ok := msg1.Payload.(messages.UserMessage)
+	require.True(t, ok)
+	assert.Equal(t, "initial message", userMsg.Content.Content)
+
+	// Verify the tool response was added
+	msg2 := msgs[1]
+	toolResp, ok := msg2.Payload.(messages.ToolResponse)
+	require.True(t, ok)
+	assert.Equal(t, "modify_session", toolResp.ToolName)
+	assert.Equal(t, "call1", toolResp.ToolCallID)
+	assert.Equal(t, "test response", toolResp.Content)
+}
+
+func TestHandleToolCallsSessionEdgeCases(t *testing.T) {
+	l := NewLocal()
+
+	t.Run("empty tool response", func(t *testing.T) {
+		agent := &mockAgent{
+			testName:  "test_agent",
+			testModel: testModel{provider: &mockProvider{}},
+			testTools: []tool.Definition{
+				{
+					Name: "empty_tool",
+					Function: func() string {
+						return ""
+					},
+				},
+			},
+		}
+
+		mem := shorttermmemory.New()
+		initialLen := mem.Len()
+
+		runID := uuidx.New()
+		params := toolCallParams{
+			runID: runID,
+			agent: agent,
+			mem:   mem,
+			hook:  &mockHook{},
+			toolCalls: messages.ToolCallMessage{
+				ToolCalls: []messages.ToolCallData{
+					{
+						ID:        "call1",
+						Name:      "empty_tool",
+						Arguments: "{}",
+					},
+				},
+			},
+		}
+
+		nextAgent, err := l.handleToolCalls(context.Background(), params)
+		require.NoError(t, err)
+		assert.Nil(t, nextAgent)
+
+		msgs := mem.Messages()
+		assert.Equal(t, initialLen+1, len(msgs), "Should have added 1 tool response message")
+
+		toolResp, ok := msgs[0].Payload.(messages.ToolResponse)
+		require.True(t, ok)
+		assert.Equal(t, "", toolResp.Content, "Empty response should be preserved")
+	})
+
+	t.Run("concurrent tool calls", func(t *testing.T) {
+		agent := &mockAgent{
+			testName:  "test_agent",
+			testModel: testModel{provider: &mockProvider{}},
+			testTools: []tool.Definition{
+				{
+					Name: "concurrent_tool",
+					Function: func() types.ContextVars {
+						cv := types.ContextVars{}
+						cv["key"] = "value"
+						return cv
+					},
+				},
+			},
+		}
+
+		mem := shorttermmemory.New()
+		initialLen := mem.Len()
+
+		// Create multiple concurrent tool calls
+		const numCalls = 5
+		var params []toolCallParams
+		var forkedSessions []*shorttermmemory.Aggregator
+
+		for i := 0; i < numCalls; i++ {
+			forked := mem.Fork()
+			forkedSessions = append(forkedSessions, forked)
+			params = append(params, toolCallParams{
+				runID: uuidx.New(),
+				agent: agent,
+				mem:   forked,
+				hook:  &mockHook{},
+				toolCalls: messages.ToolCallMessage{
+					ToolCalls: []messages.ToolCallData{
+						{
+							ID:        fmt.Sprintf("call%d", i+1),
+							Name:      "concurrent_tool",
+							Arguments: "{}",
+						},
+					},
+				},
+			})
+		}
+
+		// Run tool calls concurrently
+		errCh := make(chan error, numCalls)
+		for i := 0; i < numCalls; i++ {
+			go func(p toolCallParams) {
+				nextAgent, err := l.handleToolCalls(context.Background(), p)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				if nextAgent != nil {
+					errCh <- fmt.Errorf("unexpected next agent")
+					return
+				}
+				errCh <- nil
+			}(params[i])
+		}
+
+		// Wait for all calls to complete
+		for i := 0; i < numCalls; i++ {
+			err := <-errCh
+			require.NoError(t, err)
+		}
+
+		// Join all forked sessions back to the main session
+		for _, forked := range forkedSessions {
+			mem.Join(forked)
+		}
+
+		// Verify final session state
+		msgs := mem.Messages()
+		assert.Equal(t, initialLen+numCalls, len(msgs), "Should have added messages for all tool calls")
+
+		// Create a map of tool call IDs to verify all expected calls are present
+		toolCallIDs := make(map[string]bool)
+		for _, msg := range msgs {
+			if toolResp, ok := msg.Payload.(messages.ToolResponse); ok {
+				toolCallIDs[toolResp.ToolCallID] = true
+			}
+		}
+
+		// Verify all expected tool calls are present
+		for i := 1; i <= numCalls; i++ {
+			callID := fmt.Sprintf("call%d", i)
+			assert.True(t, toolCallIDs[callID], "Missing tool call response for %s", callID)
+		}
+	})
+
+	t.Run("fork error handling", func(t *testing.T) {
+		agent := &mockAgent{
+			testName:  "test_agent",
+			testModel: testModel{provider: &mockProvider{}},
+			testTools: []tool.Definition{
+				{
+					Name: "error_tool",
+					Function: func() error {
+						return fmt.Errorf("test error")
+					},
+				},
+			},
+		}
+
+		mem := shorttermmemory.New()
+		initialLen := mem.Len()
+
+		// Add some initial content
+		mem.AddUserPrompt(messages.Message[messages.UserMessage]{
+			RunID:     uuidx.New(),
+			TurnID:    mem.ID(),
+			Sender:    "user",
+			Timestamp: strfmt.DateTime(time.Now()),
+			Payload:   messages.UserMessage{Content: messages.ContentOrParts{Content: "initial message"}},
+		})
+
+		runID := uuidx.New()
+		params := toolCallParams{
+			runID: runID,
+			agent: agent,
+			mem:   mem,
+			hook:  &mockHook{},
+			toolCalls: messages.ToolCallMessage{
+				ToolCalls: []messages.ToolCallData{
+					{
+						ID:        "call1",
+						Name:      "error_tool",
+						Arguments: "{}",
+					},
+				},
+			},
+		}
+
+		_, err := l.handleToolCalls(context.Background(), params)
+		require.Error(t, err)
+
+		// Verify original session was not modified
+		msgs := mem.Messages()
+		assert.Equal(t, initialLen+1, len(msgs), "Original session should be unchanged")
+		userMsg, ok := msgs[0].Payload.(messages.UserMessage)
+		require.True(t, ok)
+		assert.Equal(t, "initial message", userMsg.Content.Content)
+	})
+}
+
+func TestRunWithAgentChain(t *testing.T) {
+	l := NewLocal()
+
+	// Create agents in reverse order since each needs to know about the next
+	agent3 := &mockAgent{
+		testName: "agent3",
+		testModel: testModel{provider: &mockProvider{
+			responses: []provider.StreamEvent{
+				provider.Response[messages.ToolCallMessage]{
+					Response: messages.ToolCallMessage{
+						ToolCalls: []messages.ToolCallData{{
+							ID:        "final",
+							Name:      "final_tool",
+							Arguments: `{"cv": {}}`,
+						}},
+					},
+				},
+				provider.Response[messages.AssistantMessage]{
+					Response: messages.AssistantMessage{
+						Content: messages.AssistantContentOrParts{
+							Content: "Final response after all tools",
+						},
+					},
+				},
+			},
+		}},
+		testTools: []tool.Definition{{
+			Name: "final_tool",
+			Function: func(cv types.ContextVars) string {
+				return fmt.Sprintf("final result with context: %v, %v, %v",
+					cv["key1"], cv["key2"], cv["key3"])
+			},
+			Parameters: map[string]string{
+				"param0": "cv",
+			},
+		}},
+	}
+
+	agent2 := &mockAgent{
+		testName: "agent2",
+		testModel: testModel{provider: &mockProvider{
+			responses: []provider.StreamEvent{
+				provider.Response[messages.ToolCallMessage]{
+					Response: messages.ToolCallMessage{
+						ToolCalls: []messages.ToolCallData{
+							{
+								ID:        "intermediate",
+								Name:      "intermediate_tool",
+								Arguments: `{"cv": {}}`,
+							},
+							{
+								ID:        "transfer2",
+								Name:      "transfer_to_agent3",
+								Arguments: "{}",
+							},
+						},
+					},
+				},
+			},
+		}},
+		testTools: []tool.Definition{
+			{
+				Name: "intermediate_tool",
+				Function: func(cv types.ContextVars) types.ContextVars {
+					cv["key3"] = "value3"
+					return cv
+				},
+				Parameters: map[string]string{
+					"param0": "cv",
+				},
+			},
+			{
+				Name: "transfer_to_agent3",
+				Function: func() api.Owl {
+					return agent3
+				},
+			},
+		},
+	}
+
+	agent1 := &mockAgent{
+		testName: "agent1",
+		testModel: testModel{provider: &mockProvider{
+			responses: []provider.StreamEvent{
+				provider.Response[messages.ToolCallMessage]{
+					Response: messages.ToolCallMessage{
+						ToolCalls: []messages.ToolCallData{
+							{
+								ID:        "setup",
+								Name:      "setup_tool",
+								Arguments: "{}",
+							},
+							{
+								ID:        "transfer1",
+								Name:      "transfer_to_agent2",
+								Arguments: "{}",
+							},
+						},
+					},
+				},
+			},
+		}},
+		testTools: []tool.Definition{
+			{
+				Name: "setup_tool",
+				Function: func() types.ContextVars {
+					return types.ContextVars{
+						"key1": "value1",
+						"key2": "value2",
+					}
+				},
+			},
+			{
+				Name: "transfer_to_agent2",
+				Function: func() api.Owl {
+					return agent2
+				},
+			},
+		},
+	}
+
+	thread := shorttermmemory.New()
+	initialLen := thread.Len()
+
+	var toolResponses []messages.ToolResponse
+	var assistantMessages []messages.AssistantMessage
+	hook := &mockHook{
+		onToolCallResponse: func(ctx context.Context, msg messages.Message[messages.ToolResponse]) {
+			toolResponses = append(toolResponses, msg.Payload)
+		},
+		onAssistantMessage: func(ctx context.Context, msg messages.Message[messages.AssistantMessage]) {
+			assistantMessages = append(assistantMessages, msg.Payload)
+		},
+	}
+
+	cmd, err := NewRunCommand(agent1, thread, hook)
+	require.NoError(t, err)
+
+	fut := NewFuture(DefaultUnmarshal[string]())
+	err = l.Run(context.Background(), cmd, fut)
+	require.NoError(t, err)
+
+	msgs := thread.Messages()
+	assert.Equal(t, initialLen+7, len(msgs), "Should have 7 messages total")
+
+	// Only verify senders if we have enough messages
+	if len(msgs) >= 6 {
+		var senders []string
+		for _, msg := range msgs {
+			senders = append(senders, msg.Sender)
+		}
+		expectedSenders := []string{
+			"agent1", // setup_tool
+			"agent1", // transfer_to_agent2
+			"agent2", // intermediate_tool
+			"agent2", // transfer_to_agent3
+			"agent3", // final_tool
+			"agent3", // final assistant message
+		}
+		assert.Equal(t, expectedSenders, senders[:len(expectedSenders)])
+	}
+
+	result, err := fut.Get()
+	require.NoError(t, err)
+	assert.Equal(t, "Final response after all tools", result)
 }
 
 func TestCallFunctionWithComplexTypes(t *testing.T) {

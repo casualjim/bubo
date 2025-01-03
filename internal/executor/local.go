@@ -36,19 +36,18 @@ func (e *breakError) Error() string {
 	return "break"
 }
 
-type Temporal struct{}
+type continueError struct{}
 
-type Local struct {
-	// broker broker.Broker
+func (e *continueError) Error() string {
+	return "continue"
 }
 
+type Temporal struct{}
+
+type Local struct{}
+
 func NewLocal() *Local {
-	// if broker == nil {
-	// 	panic("broker cannot be nil")
-	// }
-	return &Local{
-		// broker: broker,
-	}
+	return &Local{}
 }
 
 func wrapErr(runID, turnID uuid.UUID, sender string, err error) (events.Error, bool) {
@@ -81,67 +80,67 @@ func (l *Local) Run(ctx context.Context, command RunCommand, promise Promise) er
 		return err
 	}
 
-	// topic, subscription, err := l.setupTopicAndSubscription(ctx, command)
-	// if err != nil {
-	// 	return err
-	// }
-	// defer subscription.Unsubscribe()
-
 	contextVars := command.initializeContextVars()
 	thread := command.Thread.Fork()
 	activeAgent := command.Agent
 
-	return l.runReactorLoop(ctx, reactorParams{
+	err := l.runReactorLoop(ctx, reactorParams{
 		command:     command,
 		thread:      thread,
 		activeAgent: activeAgent,
 		contextVars: contextVars,
-		// topic:       topic,
-		promise: promise,
+		promise:     promise,
 	})
-}
+	if err != nil {
+		var breakErr *breakError
+		if errors.As(err, &breakErr) {
+			// Break error means successful completion
+			command.Thread.Join(thread)
+			return nil
+		}
 
-// func (l *Local) setupTopicAndSubscription(ctx context.Context, command RunCommand) (broker.Topic, broker.Subscription, error) {
-// 	topic := l.Topic(ctx, command.ID().String())
-// 	subscription, err := topic.Subscribe(ctx, command.Hook)
-// 	if err != nil {
-// 		return nil, nil, fmt.Errorf("failed to subscribe to topic: %w", err)
-// 	}
-// 	if subscription == nil {
-// 		return nil, nil, fmt.Errorf("received nil subscription from topic")
-// 	}
-// 	return topic, subscription, nil
-// }
+		return err
+	}
+
+	// Always join the thread back to the command's thread
+	command.Thread.Join(thread)
+	return nil
+}
 
 type reactorParams struct {
 	command     RunCommand
 	thread      *shorttermmemory.Aggregator
 	activeAgent api.Owl
 	contextVars types.ContextVars
-	// topic       broker.Topic
-	promise Promise
+	promise     Promise
 }
 
 func (l *Local) runReactorLoop(ctx context.Context, params reactorParams) error {
 	for params.thread.TurnLen() < params.command.MaxTurns {
+		// Validate current agent and provider
 		if err := l.validateAgentAndProvider(ctx, &params); err != nil {
 			return err
 		}
 
+		// Get chat completion stream
 		stream, err := l.initiateChatCompletion(ctx, &params)
 		if err != nil {
 			return err
 		}
 
+		// Process stream events
 		if err := l.handleStreamEvents(ctx, stream, &params); err != nil {
-			var breakErr *breakError
-			if errors.As(err, &breakErr) {
-				return nil // Normal completion, exit without error
+			var continueErr *continueError
+			if errors.As(err, &continueErr) {
+				continue // Agent transfer occurred, retry with new agent
 			}
 			return err
 		}
+
+		// Handle completion
+		return l.handleStreamCompletion(&params)
 	}
-	return nil
+	return errors.New("max turns exceeded")
 }
 
 func (l *Local) validateAgentAndProvider(ctx context.Context, params *reactorParams) error {
@@ -205,13 +204,32 @@ func (l *Local) handleStreamEvents(ctx context.Context, stream <-chan provider.S
 }
 
 func (l *Local) handleStreamCompletion(params *reactorParams) error {
-	if len(params.thread.Messages()) > 0 {
-		lastMsg := params.thread.Messages()[len(params.thread.Messages())-1]
-		if assistantMsg, ok := lastMsg.Payload.(messages.AssistantMessage); ok {
-			params.promise.Complete(assistantMsg.Content.Content)
-		}
+	msgs := params.thread.Messages()
+	if len(msgs) == 0 {
+		return fmt.Errorf("no messages in thread")
 	}
-	return nil
+
+	// The last message must be from the current agent
+	lastMsg := msgs[len(msgs)-1]
+	if lastMsg.Sender != params.activeAgent.Name() {
+		return fmt.Errorf("last message is not from current agent %s", params.activeAgent.Name())
+	}
+
+	// If it's a tool response, continue to allow agent transfer
+	if _, ok := lastMsg.Payload.(messages.ToolResponse); ok {
+		return &continueError{}
+	}
+
+	// If it's an assistant message, complete the promise
+	// We know it's safe because handleToolCallResponse would have returned continueError
+	// if there was an agent transfer
+	if assistantMsg, ok := lastMsg.Payload.(messages.AssistantMessage); ok {
+		params.promise.Complete(assistantMsg.Content.Content)
+		return &breakError{}
+	}
+
+	// Last message was neither assistant message nor tool response
+	return fmt.Errorf("last message from agent %s was neither assistant message nor tool response", params.activeAgent.Name())
 }
 
 func (l *Local) processStreamEvent(ctx context.Context, event provider.StreamEvent, params *reactorParams) error {
@@ -220,7 +238,6 @@ func (l *Local) processStreamEvent(ctx context.Context, event provider.StreamEve
 		return nil
 	case provider.Error:
 		l.publishError(ctx, params, event)
-
 		params.promise.Error(event.Err)
 		return event.Err
 	case provider.Chunk[messages.AssistantMessage]:
@@ -234,7 +251,6 @@ func (l *Local) processStreamEvent(ctx context.Context, event provider.StreamEve
 		})
 		return nil
 	case provider.Chunk[messages.ToolCallMessage]:
-		// return l.publishEvent(ctx, *params, event)
 		params.command.Hook.OnToolCallChunk(ctx, messages.Message[messages.ToolCallMessage]{
 			RunID:     event.RunID,
 			TurnID:    event.TurnID,
@@ -247,12 +263,9 @@ func (l *Local) processStreamEvent(ctx context.Context, event provider.StreamEve
 	case provider.Response[messages.ToolCallMessage]:
 		return l.handleToolCallResponse(ctx, event, params)
 	case provider.Response[messages.AssistantMessage]:
-
 		if err := l.handleAssistantResponse(ctx, event, params); err != nil {
 			return err
 		}
-		// Signal that we should break after the stream is closed
-		// params.command.MaxTurns = params.thread.TurnLen()
 		return nil
 	default:
 		panic(fmt.Sprintf("unknown event type %T", event))
@@ -265,50 +278,67 @@ func (l *Local) publishError(ctx context.Context, params *reactorParams, err err
 	}
 }
 
-func (l *Local) handleToolCallResponse(ctx context.Context, event provider.Response[messages.ToolCallMessage], params *reactorParams) error {
+func (l *Local) handleAssistantResponse(ctx context.Context, event provider.Response[messages.AssistantMessage], params *reactorParams) error {
+	// The provider guarantees that tool calls and responses are processed before
+	// any assistant messages. If we get here, it means all tool calls have been
+	// handled and there were no agent transfers.
 	event.Checkpoint.MergeInto(params.thread)
-	params.command.Hook.OnToolCallMessage(ctx, messages.Message[messages.ToolCallMessage]{
+
+	msg := messages.Message[messages.AssistantMessage]{
 		RunID:     event.RunID,
 		TurnID:    event.TurnID,
 		Payload:   event.Response,
 		Sender:    params.activeAgent.Name(),
 		Timestamp: event.Timestamp,
 		Meta:      event.Meta,
-	})
+	}
+	params.thread.AddAssistantMessage(msg)
+	params.command.Hook.OnAssistantMessage(ctx, msg)
+	return nil
+}
 
-	agent, err := l.handleToolCalls(ctx, toolCallParams{
-		mem:         params.thread.Fork(),
+func (l *Local) handleToolCallResponse(ctx context.Context, event provider.Response[messages.ToolCallMessage], params *reactorParams) error {
+	forked := params.thread.Fork()
+	event.Checkpoint.MergeInto(forked)
+
+	toolCallMsg := messages.Message[messages.ToolCallMessage]{
+		RunID:     event.RunID,
+		TurnID:    event.TurnID,
+		Payload:   event.Response,
+		Sender:    params.activeAgent.Name(),
+		Timestamp: event.Timestamp,
+		Meta:      event.Meta,
+	}
+	forked.AddToolCall(toolCallMsg)
+	params.command.Hook.OnToolCallMessage(ctx, toolCallMsg)
+
+	toolParams := toolCallParams{
+		mem:         forked,
 		agent:       params.activeAgent,
-		runID:       params.command.ID(),
+		runID:       event.RunID,
 		hook:        params.command.Hook,
 		toolCalls:   event.Response,
-		contextVars: params.contextVars,
-	})
+		contextVars: make(types.ContextVars),
+	}
+	if params.contextVars != nil {
+		maps.Copy(toolParams.contextVars, params.contextVars)
+	}
+
+	nextAgent, err := l.handleToolCalls(ctx, toolParams)
 	if err != nil {
 		l.publishError(ctx, params, err)
 		return err
 	}
-	if agent != nil {
-		params.activeAgent = agent
+
+	// Always join threads before potential transfer
+	params.thread.Join(forked)
+
+	// Handle agent transfer after joining threads
+	if nextAgent != nil {
+		params.activeAgent = nextAgent
+		return &continueError{}
 	}
-	return nil
-}
 
-func (l *Local) handleAssistantResponse(ctx context.Context, event provider.Response[messages.AssistantMessage], params *reactorParams) error {
-	event.Checkpoint.MergeInto(params.thread)
-
-	msg := messages.Message[messages.AssistantMessage]{
-		RunID:     params.command.ID(),
-		TurnID:    params.thread.ID(),
-		Payload:   event.Response,
-		Sender:    params.activeAgent.Name(),
-		Timestamp: strfmt.DateTime(time.Now()),
-	}
-	params.thread.AddAssistantMessage(msg)
-	params.command.Hook.OnAssistantMessage(ctx, msg)
-
-	// Signal that we should break after the stream is closed
-	params.command.MaxTurns = params.thread.TurnLen()
 	return nil
 }
 
@@ -318,18 +348,7 @@ func (l *Local) handleToolCalls(ctx context.Context, params toolCallParams) (api
 		agentTools[tool.Name] = tool
 	}
 
-	// Initialize context variables
-	var contextVars types.ContextVars
-	if params.contextVars != nil {
-		contextVars = maps.Clone(params.contextVars)
-	}
-
-	// Partition tool calls into agent transfers and regular tools while preserving order
-	var agentCalls, regularCalls []struct {
-		index int
-		call  messages.ToolCallData
-	}
-	for i, call := range params.toolCalls.ToolCalls {
+	for _, call := range params.toolCalls.ToolCalls {
 		tool, exists := agentTools[call.Name]
 		if !exists {
 			return nil, events.Error{
@@ -341,148 +360,30 @@ func (l *Local) handleToolCalls(ctx context.Context, params toolCallParams) (api
 			}
 		}
 
-		// Check if tool returns an Agent by examining its return type
-		if reflect.TypeOf(tool.Function).Out(0) == reflect.TypeOf((*api.Owl)(nil)).Elem() {
-			agentCalls = append(agentCalls, struct {
-				index int
-				call  messages.ToolCallData
-			}{i, call})
-		} else {
-			regularCalls = append(regularCalls, struct {
-				index int
-				call  messages.ToolCallData
-			}{i, call})
-		}
-	}
-
-	// Sort by original index to maintain received order within each partition
-	slices.SortFunc(agentCalls, func(a, b struct {
-		index int
-		call  messages.ToolCallData
-	},
-	) int {
-		return a.index - b.index
-	})
-	slices.SortFunc(regularCalls, func(a, b struct {
-		index int
-		call  messages.ToolCallData
-	},
-	) int {
-		return a.index - b.index
-	})
-
-	// Handle agent transfers first - return on first successful transfer
-	for _, item := range agentCalls {
-		tool := agentTools[item.call.Name]
-		args := buildArgList(item.call.Arguments, tool.Parameters)
-		result, err := callFunction(tool.Function, args, contextVars)
+		args := buildArgList(call.Arguments, tool.Parameters)
+		result, err := callFunction(tool.Function, args, params.contextVars)
 		if err != nil {
-			return nil, events.Error{
-				RunID:     params.runID,
-				TurnID:    params.mem.ID(),
-				Sender:    params.agent.Name(),
-				Err:       err,
-				Timestamp: strfmt.DateTime(time.Now()),
-			}
+			return nil, err
 		}
 
-		// Update memory and context variables
-		params.mem.AddToolResponse(messages.Message[messages.ToolResponse]{
-			RunID:  params.runID,
-			TurnID: params.mem.ID(),
-			Payload: messages.ToolResponse{
-				ToolName:   tool.Name,
-				ToolCallID: item.call.ID,
-				Content:    result.Value,
-			},
-			Sender:    params.agent.Name(),
-			Timestamp: strfmt.DateTime(time.Now()),
-			Meta:      gjson.Result{},
-		})
-
-		if result.ContextVariables != nil {
-			if contextVars == nil {
-				contextVars = make(types.ContextVars, len(result.ContextVariables))
-			}
-			maps.Copy(contextVars, result.ContextVariables)
-			// Update parent context variables
-			if params.contextVars == nil {
-				params.contextVars = make(types.ContextVars, len(result.ContextVariables))
-			}
-			maps.Copy(params.contextVars, result.ContextVariables)
-		}
-
-		// Publish tool response
-		params.hook.OnToolCallResponse(ctx, messages.Message[messages.ToolResponse]{
-			RunID:  params.runID,
-			TurnID: params.mem.ID(),
-			Payload: messages.ToolResponse{
-				ToolName:   tool.Name,
-				ToolCallID: item.call.ID,
-				Content:    fmt.Sprintf("transfer to agent %s", result.Agent.Name()),
-			},
-			Sender:    params.agent.Name(),
-			Timestamp: strfmt.DateTime(time.Now()),
-		})
-
+		// Check for agent transfer before adding response
 		if result.Agent != nil {
-			return result.Agent, nil // Return first successful agent transfer
-		}
-	}
-
-	// Handle regular tool calls
-	for _, item := range regularCalls {
-		tool := agentTools[item.call.Name]
-		args := buildArgList(item.call.Arguments, tool.Parameters)
-		result, err := callFunction(tool.Function, args, contextVars)
-		if err != nil {
-			return nil, events.Error{
-				RunID:     params.runID,
-				TurnID:    params.mem.ID(),
-				Sender:    params.agent.Name(),
-				Err:       err,
-				Timestamp: strfmt.DateTime(time.Now()),
-			}
+			return result.Agent, nil
 		}
 
-		// Update memory and context variables
-		params.mem.AddToolResponse(messages.Message[messages.ToolResponse]{
-			RunID:  params.runID,
-			TurnID: params.mem.ID(),
-			Payload: messages.ToolResponse{
-				ToolName:   tool.Name,
-				ToolCallID: item.call.ID,
-				Content:    result.Value,
-			},
-			Sender:    params.agent.Name(),
-			Timestamp: strfmt.DateTime(time.Now()),
-			Meta:      gjson.Result{},
-		})
+		msg := messages.New().ToolResponse(call.ID, call.Name, fmt.Sprintf("%v", result.Value))
+		msg.RunID = params.runID
+		msg.TurnID = params.mem.ID()
+		msg.Sender = params.agent.Name()
+		params.mem.AddToolResponse(msg)
+		params.hook.OnToolCallResponse(ctx, msg)
 
 		if result.ContextVariables != nil {
-			if contextVars == nil {
-				contextVars = make(types.ContextVars, len(result.ContextVariables))
-			}
-			maps.Copy(contextVars, result.ContextVariables)
-			// Update parent context variables
 			if params.contextVars == nil {
-				params.contextVars = make(types.ContextVars, len(result.ContextVariables))
+				params.contextVars = make(types.ContextVars)
 			}
 			maps.Copy(params.contextVars, result.ContextVariables)
 		}
-
-		// Publish tool response
-		params.hook.OnToolCallResponse(ctx, messages.Message[messages.ToolResponse]{
-			RunID:  params.runID,
-			TurnID: params.mem.ID(),
-			Payload: messages.ToolResponse{
-				ToolName:   tool.Name,
-				ToolCallID: item.call.ID,
-				Content:    result.Value,
-			},
-			Sender:    params.agent.Name(),
-			Timestamp: strfmt.DateTime(time.Now()),
-		})
 	}
 
 	return nil, nil
@@ -490,7 +391,6 @@ func (l *Local) handleToolCalls(ctx context.Context, params toolCallParams) (api
 
 func buildArgList(arguments string, parameters map[string]string) []reflect.Value {
 	args := gjson.Parse(arguments)
-	// build an ordered list of arguments
 	targs := make([]string, len(parameters))
 	for k, v := range parameters {
 		ns := strings.TrimPrefix(k, "param")
@@ -501,7 +401,7 @@ func buildArgList(arguments string, parameters map[string]string) []reflect.Valu
 		targs[i] = v
 	}
 
-	toolArgs := make([]reflect.Value, 0) //nolint: prealloc
+	toolArgs := make([]reflect.Value, 0)
 	for _, arg := range targs {
 		if arg == "" {
 			continue
@@ -512,21 +412,18 @@ func buildArgList(arguments string, parameters map[string]string) []reflect.Valu
 			continue
 		}
 
-		// TODO: this needs to support a runtime context argument
-		// that is optionally passed to the function
-		// TODO: this needs verification of complex types
 		toolArgs = append(toolArgs, reflect.ValueOf(val.Value()))
 	}
 	return toolArgs
 }
 
-type result struct {
+type toolResult struct {
 	Value            string
 	Agent            api.Owl
 	ContextVariables types.ContextVars
 }
 
-func callFunction(fn any, args []reflect.Value, contextVars types.ContextVars) (result, error) {
+func callFunction(fn any, args []reflect.Value, contextVars types.ContextVars) (toolResult, error) {
 	val := reflect.ValueOf(fn)
 	vtpe := val.Type()
 
@@ -547,48 +444,48 @@ func callFunction(fn any, args []reflect.Value, contextVars types.ContextVars) (
 
 	results := val.Call(callArgs)
 	if len(results) == 0 {
-		return result{}, nil
+		return toolResult{}, nil
 	}
 
 	res := results[0]
 	if !res.IsValid() {
-		return result{}, nil
+		return toolResult{}, nil
 	}
 
 	switch vtpe := res.Interface().(type) {
 	case api.Owl:
-		return result{Value: fmt.Sprintf(`{"assistant":%q}`, vtpe.Name()), Agent: vtpe}, nil
+		return toolResult{Value: fmt.Sprintf(`{"assistant":%q}`, vtpe.Name()), Agent: vtpe}, nil
 	case error:
-		return result{}, vtpe
+		return toolResult{}, vtpe
 	case types.ContextVars:
-		return result{Value: "", ContextVariables: vtpe}, nil
+		return toolResult{Value: "", ContextVariables: vtpe}, nil
 	case string:
-		return result{Value: vtpe}, nil
+		return toolResult{Value: vtpe}, nil
 	case time.Time:
-		return result{Value: vtpe.Format(time.RFC3339)}, nil
+		return toolResult{Value: vtpe.Format(time.RFC3339)}, nil
 	case int, int8, int16, int32, int64:
 		val := reflect.ValueOf(vtpe)
-		return result{Value: strconv.FormatInt(val.Int(), 10)}, nil
+		return toolResult{Value: strconv.FormatInt(val.Int(), 10)}, nil
 	case uint, uint8, uint16, uint32, uint64:
 		val := reflect.ValueOf(vtpe)
-		return result{Value: strconv.FormatUint(val.Uint(), 10)}, nil
+		return toolResult{Value: strconv.FormatUint(val.Uint(), 10)}, nil
 	case float32, float64:
-		return result{Value: strconv.FormatFloat(vtpe.(float64), 'f', -1, 64)}, nil
+		return toolResult{Value: strconv.FormatFloat(vtpe.(float64), 'f', -1, 64)}, nil
 	case encoding.TextMarshaler:
 		b, err := vtpe.MarshalText()
 		if err != nil {
 			slog.Error("Error marshalling function return", slogx.Error(err))
-			return result{}, err
+			return toolResult{}, err
 		}
-		return result{Value: string(b)}, nil
+		return toolResult{Value: string(b)}, nil
 	case fmt.Stringer:
-		return result{Value: vtpe.String()}, nil
+		return toolResult{Value: vtpe.String()}, nil
 	default:
 		b, err := json.Marshal(vtpe)
 		if err != nil {
 			slog.Error("Error marshalling function return", slogx.Error(err))
-			return result{}, err
+			return toolResult{}, err
 		}
-		return result{Value: string(b)}, nil
+		return toolResult{Value: string(b)}, nil
 	}
 }

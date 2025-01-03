@@ -5,8 +5,32 @@ import (
 )
 
 // ResultImplements checks if any of the result arguments of a function implements the given interface type T.
-// It returns true if at least one result argument implements the interface, false otherwise.
-// The function parameter can be either a function value or a reflect.Type of a function.
+// This is particularly useful for runtime type checking and reflection-based functionality where you need
+// to verify function return types against interfaces.
+//
+// Design choices:
+//   - Generic implementation allows compile-time type safety for the interface type
+//   - Accepts both function values and reflect.Type for flexibility
+//   - Returns false for nil or non-function inputs rather than panicking
+//   - Uses reflect.TypeOf(&zero).Elem() pattern to get interface type to handle both concrete and interface types
+//
+// Example usage:
+//
+//	type Stringer interface { String() string }
+//
+//	func returnsStringer() fmt.Stringer { return nil }
+//	func returnsMultiple() (int, fmt.Stringer, error) { return 0, nil, nil }
+//
+//	ResultImplements[fmt.Stringer](returnsStringer)    // returns true
+//	ResultImplements[fmt.Stringer](returnsMultiple)    // returns true
+//	ResultImplements[error](returnsMultiple)           // returns true
+//	ResultImplements[fmt.Stringer](func() int { })     // returns false
+//
+// Parameters:
+//   - function: Either a function value or reflect.Type of a function. If nil or not a function, returns false.
+//
+// Returns:
+//   - bool: true if any result argument implements interface T, false otherwise
 func ResultImplements[T any](function interface{}) bool {
 	if function == nil {
 		return false

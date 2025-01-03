@@ -73,7 +73,7 @@ var (
 	ParallelToolCalls = opts.ForName[defaultOwl, bool]("parallelToolCalls")
 )
 
-func Tool(tool tool.Definition, extraTools ...tool.Definition) opts.Option[defaultOwl] {
+func Tools(tool tool.Definition, extraTools ...tool.Definition) opts.Option[defaultOwl] {
 	return opts.Type[defaultOwl](func(o *defaultOwl) error {
 		o.tools = append(o.tools, tool)
 		o.tools = append(o.tools, extraTools...)

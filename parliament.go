@@ -3,8 +3,10 @@ package bubo
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"reflect"
 	"slices"
+	"sync"
 
 	"github.com/alphadose/haxmap"
 	"github.com/casualjim/bubo/api"
@@ -12,6 +14,7 @@ import (
 	"github.com/casualjim/bubo/internal/executor"
 	"github.com/casualjim/bubo/internal/shorttermmemory"
 	"github.com/casualjim/bubo/messages"
+	"github.com/casualjim/bubo/types"
 	"github.com/fogfish/opts"
 	"github.com/invopop/jsonschema"
 	"github.com/tidwall/gjson"
@@ -76,15 +79,34 @@ func jsonSchema[T any]() *jsonschema.Schema {
 	return schema
 }
 
+type StructuredOutput struct {
+	Name        string
+	Description string
+	Schema      *jsonschema.Schema
+}
+
 type ExecutionContext struct {
-	executor       executor.Executor
-	hook           events.Hook
-	promise        executor.Promise
+	executor executor.Executor
+	hook     events.Hook
+	promise  executor.Promise
+	// structuredResponse *StructuredOutput
 	responseSchema *jsonschema.Schema
+	contextVars    types.ContextVars
+	onClose        func(context.Context)
 }
 
 func (e *ExecutionContext) createCommand(owl api.Owl, mem *shorttermmemory.Aggregator) (executor.RunCommand, error) {
-	return executor.NewRunCommand(owl, mem, e.hook)
+	cmd, err := executor.NewRunCommand(owl, mem, e.hook)
+	if err != nil {
+		return executor.RunCommand{}, err
+	}
+	if len(e.contextVars) > 0 {
+		cmd = cmd.WithContextVariables(e.contextVars)
+	}
+	if e.responseSchema != nil {
+		cmd = cmd.WithResponseSchema(e.responseSchema)
+	}
+	return cmd, nil
 }
 
 type Future[T any] interface {
@@ -93,32 +115,110 @@ type Future[T any] interface {
 	Get() (T, error)
 }
 
-func Local[T any](hook Hook[T]) ExecutionContext {
+var WithContextVars = opts.ForName[ExecutionContext, types.ContextVars]("contextVars")
+
+type deferredPromise[T any] struct {
+	promise executor.CompletableFuture[T]
+	hook    Hook[T]
+	mu      sync.Mutex
+	value   string
+	err     error
+	once    sync.Once
+}
+
+func (d *deferredPromise[T]) Forward(ctx context.Context) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.err != nil {
+		d.promise.Error(d.err)
+		return
+	}
+
+	d.promise.Complete(d.value)
+	res, err := d.promise.Get()
+	if err != nil {
+		d.hook.OnError(ctx, err)
+		return
+	}
+	d.hook.OnResult(ctx, res)
+}
+
+func (d *deferredPromise[T]) Complete(result string) {
+	d.once.Do(func() {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		d.value = result
+	})
+}
+
+func (d *deferredPromise[T]) Error(err error) {
+	d.once.Do(func() {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		d.err = err
+	})
+}
+
+func Local[T any](hook Hook[T], options ...opts.Option[ExecutionContext]) ExecutionContext {
 	fut := executor.NewFuture(executor.DefaultUnmarshal[T]())
-	go func() {
-		val, err := fut.Get()
-		if err != nil {
-			hook.OnError(context.Background(), err)
-			return
-		}
-		hook.OnResult(context.Background(), val)
-	}()
-	return ExecutionContext{
+	dp := &deferredPromise[T]{
+		promise: fut,
+		hook:    hook,
+	}
+	execCtx := ExecutionContext{
 		executor:       executor.NewLocal(),
 		responseSchema: jsonSchema[T](),
 		hook:           hook,
-		promise:        fut,
+		promise:        dp,
+		onClose: func(ctx context.Context) {
+			dp.Forward(ctx)
+			hook.OnClose(ctx)
+		},
 	}
+
+	if err := opts.Apply(&execCtx, options); err != nil {
+		panic(err)
+	}
+
+	return execCtx
 }
 
 func (p *Parliament) Run(ctx context.Context, rc ExecutionContext) error {
-	for _, step := range p.steps {
-		if err := p.runStep(ctx, step.owlName, step.task, rc); err != nil {
+	defer rc.onClose(ctx)
+
+	maxItems := len(p.steps) - 1
+
+	for i, step := range p.steps {
+		var promise executor.Promise
+		var schema *jsonschema.Schema
+		if i < maxItems {
+			slog.Debug("using noop promise, not the last step")
+			promise = noopPromise{}
+		} else {
+			slog.Debug("using input promise, last step")
+			promise = rc.promise
+			schema = rc.responseSchema
+		}
+
+		if err := p.runStep(ctx, step.owlName, step.task, ExecutionContext{
+			executor:       rc.executor,
+			hook:           rc.hook,
+			promise:        promise,
+			contextVars:    rc.contextVars,
+			onClose:        rc.onClose,
+			responseSchema: schema,
+		}); err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
+
+type noopPromise struct{}
+
+func (noopPromise) Complete(string) {}
+func (noopPromise) Error(error)     {}
 
 func (p *Parliament) runStep(ctx context.Context, owlName, prompt string, rc ExecutionContext) error {
 	owl, found := p.owls.Get(owlName)
@@ -142,7 +242,8 @@ func (p *Parliament) runStep(ctx context.Context, owlName, prompt string, rc Exe
 
 type Hook[T any] interface {
 	events.Hook
-	OnResult(ctx context.Context, result T)
+	OnResult(context.Context, T)
+	OnClose(context.Context)
 }
 
 func HookFuture[T any](hook Hook[T]) (Hook[T], Future[T]) {
@@ -198,6 +299,10 @@ func (f *hookFuture[T]) OnError(ctx context.Context, err error) {
 
 func (f *hookFuture[T]) OnResult(ctx context.Context, result T) {
 	f.inner.OnResult(ctx, result)
+}
+
+func (f *hookFuture[T]) OnClose(ctx context.Context) {
+	f.inner.OnClose(ctx)
 }
 
 func (f hookFuture[T]) AsFuture() Future[T] {

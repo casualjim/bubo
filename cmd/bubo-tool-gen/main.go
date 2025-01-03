@@ -202,7 +202,7 @@ func createToolsFile(pkgName string, toolFuncs []toolFuncInfo) *ast.File {
 					&ast.ImportSpec{
 						Path: &ast.BasicLit{
 							Kind:  token.STRING,
-							Value: `"github.com/casualjim/bubo"`,
+							Value: `"github.com/casualjim/bubo/tool"`,
 						},
 					},
 				},
@@ -247,8 +247,8 @@ func createToolVariableAST(tool toolFuncInfo) ast.Decl {
 		ast.NewIdent(tool.name),
 		&ast.CallExpr{
 			Fun: &ast.SelectorExpr{
-				X:   ast.NewIdent("bubo"),
-				Sel: ast.NewIdent("WithToolName"),
+				X:   ast.NewIdent("tool"),
+				Sel: ast.NewIdent("Name"),
 			},
 			Args: []ast.Expr{
 				&ast.BasicLit{
@@ -265,8 +265,8 @@ func createToolVariableAST(tool toolFuncInfo) ast.Decl {
 	}
 	args = append(args, &ast.CallExpr{
 		Fun: &ast.SelectorExpr{
-			X:   ast.NewIdent("bubo"),
-			Sel: ast.NewIdent("WithToolDescription"),
+			X:   ast.NewIdent("tool"),
+			Sel: ast.NewIdent("Description"),
 		},
 		Args: []ast.Expr{
 			&ast.BasicLit{
@@ -280,8 +280,8 @@ func createToolVariableAST(tool toolFuncInfo) ast.Decl {
 	if len(paramExprs) > 0 {
 		args = append(args, &ast.CallExpr{
 			Fun: &ast.SelectorExpr{
-				X:   ast.NewIdent("bubo"),
-				Sel: ast.NewIdent("WithToolParameters"),
+				X:   ast.NewIdent("tool"),
+				Sel: ast.NewIdent("Parameters"),
 			},
 			Args: paramExprs,
 		})
@@ -290,8 +290,8 @@ func createToolVariableAST(tool toolFuncInfo) ast.Decl {
 	// Create the MustAgentTool call expression
 	callExpr := &ast.CallExpr{
 		Fun: &ast.SelectorExpr{
-			X:   ast.NewIdent("bubo"),
-			Sel: ast.NewIdent("MustAgentTool"),
+			X:   ast.NewIdent("tool"),
+			Sel: ast.NewIdent("Must"),
 		},
 		Args: args,
 	}

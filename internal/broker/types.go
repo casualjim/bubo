@@ -6,13 +6,13 @@ import (
 	"github.com/casualjim/bubo/events"
 )
 
-type Broker[T any] interface {
-	Topic(context.Context, string) Topic[T]
+type Broker interface {
+	Topic(context.Context, string) Topic
 }
 
-type Topic[T any] interface {
+type Topic interface {
 	Publish(context.Context, events.Event) error
-	Subscribe(context.Context, events.Hook[T]) (Subscription, error)
+	Subscribe(context.Context, events.Hook) (Subscription, error)
 }
 
 type Subscription interface {

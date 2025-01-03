@@ -3,12 +3,17 @@ package executor
 import (
 	"context"
 	"errors"
+	"fmt"
+	"maps"
 	"math"
 	"reflect"
+	"sync"
+	"sync/atomic"
 
 	"github.com/casualjim/bubo/api"
 	"github.com/casualjim/bubo/events"
 	"github.com/casualjim/bubo/internal/shorttermmemory"
+	"github.com/casualjim/bubo/pkg/stdx"
 	"github.com/casualjim/bubo/pkg/uuidx"
 	"github.com/casualjim/bubo/types"
 	"github.com/goccy/go-json"
@@ -24,13 +29,13 @@ var reflector = jsonschema.Reflector{
 	DoNotReference:            true,
 }
 
-func toJSONSchema[T any]() *jsonschema.Schema {
+func ToJSONSchema[T any]() *jsonschema.Schema {
 	var v T
 	schema := reflector.Reflect(v)
 	return schema
 }
 
-func NewRunCommand[T any](agent api.Owl, thread *shorttermmemory.Aggregator, hook events.Hook[T]) (RunCommand[T], error) {
+func NewRunCommand(agent api.Owl, thread *shorttermmemory.Aggregator, hook events.Hook) (RunCommand, error) {
 	var err error
 	if agent == nil {
 		err = errors.Join(err, errors.New("agent is required"))
@@ -43,11 +48,70 @@ func NewRunCommand[T any](agent api.Owl, thread *shorttermmemory.Aggregator, hoo
 	}
 
 	if err != nil {
-		return RunCommand[T]{}, err
+		return RunCommand{}, err
 	}
 
+	return RunCommand{
+		id:       uuidx.New(),
+		Agent:    agent,
+		Thread:   thread,
+		Hook:     hook,
+		MaxTurns: math.MaxInt,
+	}, nil
+}
+
+type RunCommand struct {
+	id               uuid.UUID
+	Agent            api.Owl
+	Thread           *shorttermmemory.Aggregator
+	ResponseSchema   *jsonschema.Schema
+	Stream           bool
+	MaxTurns         int
+	ContextVariables types.ContextVars
+	Hook             events.Hook
+}
+
+func (r *RunCommand) Validate() error {
+	if r.Agent == nil {
+		return fmt.Errorf("agent cannot be nil")
+	}
+	if r.Thread == nil {
+		return fmt.Errorf("thread cannot be nil")
+	}
+	if r.Hook == nil {
+		return fmt.Errorf("hook cannot be nil")
+	}
+	return nil
+}
+
+func (r *RunCommand) initializeContextVars() types.ContextVars {
+	if r.ContextVariables != nil {
+		return maps.Clone(r.ContextVariables)
+	}
+	return nil
+}
+
+func (r *RunCommand) ID() uuid.UUID {
+	return r.id
+}
+
+func (r RunCommand) WithStream(stream bool) RunCommand {
+	r.Stream = stream
+	return r
+}
+
+func (r RunCommand) WithMaxTurns(maxTurns int) RunCommand {
+	r.MaxTurns = maxTurns
+	return r
+}
+
+func (r RunCommand) WithContextVariables(contextVariables types.ContextVars) RunCommand {
+	r.ContextVariables = contextVariables
+	return r
+}
+
+func DefaultUnmarshal[T any]() func([]byte) (T, error) {
 	var responseUnmarshaler func([]byte) (T, error)
-	var schema *jsonschema.Schema
 
 	// Check if T is gjson.Result
 	var isGjsonResult bool
@@ -75,47 +139,101 @@ func NewRunCommand[T any](agent api.Owl, thread *shorttermmemory.Aggregator, hoo
 			}
 			return v, nil
 		}
-		schema = toJSONSchema[T]()
+	}
+	return responseUnmarshaler
+}
+
+type CompletableFuture[T any] interface {
+	Future[T]
+	Promise
+}
+
+type Promise interface {
+	Complete(string)
+	Error(error)
+}
+
+type Future[T any] interface {
+	Get() (T, error)
+}
+
+type futState struct {
+	value string
+	err   error
+}
+
+type futResult[T any] struct {
+	result T
+	err    error
+	done   bool
+}
+
+type future[T any] struct {
+	unmarshal func([]byte) (T, error)
+	ch        chan futState
+	result    atomic.Value // holds *futResult[T]
+	once      sync.Once
+	mu        sync.Mutex
+}
+
+func NewFuture[T any](unmarshal func([]byte) (T, error)) CompletableFuture[T] {
+	f := &future[T]{
+		unmarshal: unmarshal,
+		ch:        make(chan futState, 1),
+	}
+	f.result.Store(&futResult[T]{})
+	return f
+}
+
+func (f *future[T]) Get() (T, error) {
+	res := f.result.Load().(*futResult[T])
+	if res.done {
+		return res.result, res.err
 	}
 
-	return RunCommand[T]{
-		ID:                uuidx.New(),
-		Agent:             agent,
-		Thread:            thread,
-		ResponseSchema:    schema,
-		UnmarshalResponse: responseUnmarshaler,
-		Hook:              hook,
-		MaxTurns:          math.MaxInt,
-	}, nil
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	// Double-check after acquiring lock
+	res = f.result.Load().(*futResult[T])
+	if res.done {
+		return res.result, res.err
+	}
+
+	r := <-f.ch
+	var newResult futResult[T]
+	if r.err != nil {
+		newResult = futResult[T]{
+			result: stdx.Zero[T](),
+			err:    r.err,
+			done:   true,
+		}
+	} else {
+		result, err := f.unmarshal([]byte(r.value))
+		newResult = futResult[T]{
+			result: result,
+			err:    err,
+			done:   true,
+		}
+	}
+	f.result.Store(&newResult)
+	return newResult.result, newResult.err
 }
 
-type RunCommand[T any] struct {
-	ID                uuid.UUID
-	Agent             api.Owl
-	Thread            *shorttermmemory.Aggregator
-	ResponseSchema    *jsonschema.Schema
-	UnmarshalResponse func([]byte) (T, error)
-	Stream            bool
-	MaxTurns          int
-	ContextVariables  types.ContextVars
-	Hook              events.Hook[T]
+func (f *future[T]) Complete(data string) {
+	f.once.Do(func() {
+		f.ch <- futState{value: data}
+	})
 }
 
-func (r RunCommand[T]) WithStream(stream bool) RunCommand[T] {
-	r.Stream = stream
-	return r
+func (f *future[T]) Error(err error) {
+	f.once.Do(func() {
+		f.ch <- futState{err: err}
+	})
 }
 
-func (r RunCommand[T]) WithMaxTurns(maxTurns int) RunCommand[T] {
-	r.MaxTurns = maxTurns
-	return r
-}
-
-func (r RunCommand[T]) WithContextVariables(contextVariables types.ContextVars) RunCommand[T] {
-	r.ContextVariables = contextVariables
-	return r
-}
-
-type Executor[T any] interface {
-	Run(context.Context, RunCommand[T]) error
+type Executor interface {
+	Run(context.Context, RunCommand, Promise) error
+	// Topic(context.Context, string) broker.Topic
+	handleToolCalls(ctx context.Context, params toolCallParams) (api.Owl, error)
 }

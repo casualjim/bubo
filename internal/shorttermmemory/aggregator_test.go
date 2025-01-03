@@ -20,7 +20,7 @@ func TestAggregator(t *testing.T) {
 	}
 
 	t.Run("NewAggregator", func(t *testing.T) {
-		agg := NewAggregator()
+		agg := New()
 		assert.NotEqual(t, uuid.Nil, agg.ID(), "should have valid ID")
 		assert.Empty(t, agg.messages, "should have empty messages")
 		assert.Equal(t, Usage{}, agg.usage, "should have zero usage")

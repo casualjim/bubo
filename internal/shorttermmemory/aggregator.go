@@ -21,7 +21,7 @@ func (a AggregatedMessages) Len() int {
 	return len(a)
 }
 
-// NewAggregator creates and initializes a new Aggregator instance.
+// New creates and initializes a new Aggregator instance.
 // It sets up:
 // - A new unique identifier
 // - An empty message collection
@@ -29,9 +29,9 @@ func (a AggregatedMessages) Len() int {
 //
 // Example:
 //
-//	agg := NewAggregator()
+//	agg := New()
 //	// agg is ready to accept messages and track usage
-func NewAggregator() *Aggregator {
+func New() *Aggregator {
 	return &Aggregator{
 		id:       uuidx.New(),
 		messages: make(AggregatedMessages, 0),

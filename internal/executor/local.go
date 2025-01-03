@@ -348,6 +348,9 @@ func (l *Local) handleToolCalls(ctx context.Context, params toolCallParams) (api
 		agentTools[tool.Name] = tool
 	}
 
+	var agentTransfers []messages.ToolCallData
+	var otherTools []messages.ToolCallData
+
 	for _, call := range params.toolCalls.ToolCalls {
 		tool, exists := agentTools[call.Name]
 		if !exists {
@@ -360,6 +363,15 @@ func (l *Local) handleToolCalls(ctx context.Context, params toolCallParams) (api
 			}
 		}
 
+		if reflectx.ResultImplements[api.Owl](tool.Function) {
+			agentTransfers = append(agentTransfers, call)
+		} else {
+			otherTools = append(otherTools, call)
+		}
+	}
+
+	for _, call := range append(agentTransfers, otherTools...) {
+		tool := agentTools[call.Name]
 		args := buildArgList(call.Arguments, tool.Parameters)
 		result, err := callFunction(tool.Function, args, params.contextVars)
 		if err != nil {

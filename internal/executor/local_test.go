@@ -246,7 +246,7 @@ func TestHandleToolCalls(t *testing.T) {
 		nextAgent, err := l.handleToolCalls(context.Background(), params)
 		require.NoError(t, err)
 		assert.Equal(t, nextTestAgent, nextAgent)
-		assert.Equal(t, []string{"regular_tool", "agent_tool"}, executionOrder, "tools should execute in order and return agent from agent tool")
+		assert.Equal(t, []string{"agent_tool"}, executionOrder, "tools should execute in order and return agent from agent tool")
 	})
 
 	t.Run("context variable propagation", func(t *testing.T) {
@@ -688,7 +688,7 @@ func TestHandleToolCallsWithMixedTools(t *testing.T) {
 		nextAgent, err := l.handleToolCalls(context.Background(), params)
 		require.NoError(t, err)
 		assert.NotNil(t, nextAgent)
-		assert.Equal(t, []string{"b_regular_tool", "b_agent_tool"}, executionOrder,
+		assert.Equal(t, []string{"b_agent_tool"}, executionOrder,
 			"should execute first agent tool in received order and stop")
 		assert.Empty(t, contextValue)
 	})
@@ -1172,18 +1172,16 @@ func TestRunWithAgentChain(t *testing.T) {
 	require.NoError(t, err)
 
 	msgs := thread.Messages()
-	assert.Equal(t, initialLen+7, len(msgs), "Should have 7 messages total")
+	assert.Equal(t, initialLen+5, len(msgs), "Should have 5 messages total")
 
 	// Only verify senders if we have enough messages
-	if len(msgs) >= 6 {
+	if len(msgs) >= 4 {
 		var senders []string
 		for _, msg := range msgs {
 			senders = append(senders, msg.Sender)
 		}
 		expectedSenders := []string{
-			"agent1", // setup_tool
 			"agent1", // transfer_to_agent2
-			"agent2", // intermediate_tool
 			"agent2", // transfer_to_agent3
 			"agent3", // final_tool
 			"agent3", // final assistant message

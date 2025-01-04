@@ -11,6 +11,7 @@ require (
 	github.com/go-openapi/swag v0.23.0
 	github.com/goccy/go-json v0.10.4
 	github.com/google/uuid v1.6.0
+	github.com/hokaccha/go-prettyjson v0.0.0-20211117102719-0474bc63780f
 	github.com/invopop/jsonschema v0.13.0
 	github.com/joho/godotenv v1.5.1
 	github.com/k0kubun/pp/v3 v3.4.1
@@ -37,6 +38,7 @@ require (
 	github.com/fogfish/golem/hseq v1.2.0 // indirect
 	github.com/fogfish/golem/optics v0.13.1 // indirect
 	github.com/go-openapi/errors v0.22.0 // indirect
+	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/gorilla/css v1.0.1 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
@@ -58,9 +60,13 @@ require (
 	github.com/yuin/goldmark-emoji v1.0.3 // indirect
 	go.mongodb.org/mongo-driver v1.14.0 // indirect
 	golang.org/x/exp v0.0.0-20221031165847-c99f073a8326 // indirect
+	golang.org/x/mod v0.17.0 // indirect
 	golang.org/x/net v0.27.0 // indirect
+	golang.org/x/sync v0.8.0 // indirect
 	golang.org/x/sys v0.28.0 // indirect
 	golang.org/x/term v0.22.0 // indirect
 	golang.org/x/text v0.19.0 // indirect
+	golang.org/x/tools v0.21.1-0.20240508182429-e35e4ccd0d2d // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+	mvdan.cc/gofumpt v0.7.0 // indirect
 )

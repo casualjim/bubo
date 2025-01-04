@@ -15,6 +15,7 @@ import (
 	"github.com/casualjim/bubo/internal/shorttermmemory"
 	"github.com/casualjim/bubo/pkg/stdx"
 	"github.com/casualjim/bubo/pkg/uuidx"
+	"github.com/casualjim/bubo/provider"
 	"github.com/casualjim/bubo/types"
 	"github.com/goccy/go-json"
 	"github.com/google/uuid"
@@ -64,7 +65,7 @@ type RunCommand struct {
 	id               uuid.UUID
 	Agent            api.Owl
 	Thread           *shorttermmemory.Aggregator
-	ResponseSchema   *jsonschema.Schema
+	StructuredOutput *provider.StructuredOutput
 	Stream           bool
 	MaxTurns         int
 	ContextVariables types.ContextVars
@@ -110,8 +111,8 @@ func (r RunCommand) WithContextVariables(contextVariables types.ContextVars) Run
 	return r
 }
 
-func (r RunCommand) WithResponseSchema(schema *jsonschema.Schema) RunCommand {
-	r.ResponseSchema = schema
+func (r RunCommand) WithStructuredOutput(output *provider.StructuredOutput) RunCommand {
+	r.StructuredOutput = output
 	return r
 }
 

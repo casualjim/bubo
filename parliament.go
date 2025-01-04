@@ -14,6 +14,7 @@ import (
 	"github.com/casualjim/bubo/internal/executor"
 	"github.com/casualjim/bubo/internal/shorttermmemory"
 	"github.com/casualjim/bubo/messages"
+	"github.com/casualjim/bubo/provider"
 	"github.com/casualjim/bubo/types"
 	"github.com/fogfish/opts"
 	"github.com/invopop/jsonschema"
@@ -79,20 +80,15 @@ func jsonSchema[T any]() *jsonschema.Schema {
 	return schema
 }
 
-type StructuredOutput struct {
-	Name        string
-	Description string
-	Schema      *jsonschema.Schema
-}
-
 type ExecutionContext struct {
-	executor executor.Executor
-	hook     events.Hook
-	promise  executor.Promise
-	// structuredResponse *StructuredOutput
-	responseSchema *jsonschema.Schema
+	executor       executor.Executor
+	hook           events.Hook
+	promise        executor.Promise
+	responseSchema *provider.StructuredOutput
 	contextVars    types.ContextVars
 	onClose        func(context.Context)
+	stream         bool
+	maxTurns       int
 }
 
 func (e *ExecutionContext) createCommand(owl api.Owl, mem *shorttermmemory.Aggregator) (executor.RunCommand, error) {
@@ -104,7 +100,13 @@ func (e *ExecutionContext) createCommand(owl api.Owl, mem *shorttermmemory.Aggre
 		cmd = cmd.WithContextVariables(e.contextVars)
 	}
 	if e.responseSchema != nil {
-		cmd = cmd.WithResponseSchema(e.responseSchema)
+		cmd = cmd.WithStructuredOutput(e.responseSchema)
+	}
+	if e.stream {
+		cmd = cmd.WithStream(e.stream)
+	}
+	if e.maxTurns > 0 {
+		cmd = cmd.WithMaxTurns(e.maxTurns)
 	}
 	return cmd, nil
 }
@@ -115,7 +117,25 @@ type Future[T any] interface {
 	Get() (T, error)
 }
 
-var WithContextVars = opts.ForName[ExecutionContext, types.ContextVars]("contextVars")
+var (
+	WithContextVars = opts.ForName[ExecutionContext, types.ContextVars]("contextVars")
+	Streaming       = opts.ForName[ExecutionContext, bool]("stream")
+	WithMaxTurns    = opts.ForName[ExecutionContext, int]("maxTurns")
+)
+
+func StructuredOutput[T any](name, description string) opts.Option[ExecutionContext] {
+	return opts.Type[ExecutionContext](func(s *ExecutionContext) error {
+		schema := jsonSchema[T]()
+		if schema != nil {
+			s.responseSchema = &provider.StructuredOutput{
+				Name:        name,
+				Description: description,
+				Schema:      schema,
+			}
+		}
+		return nil
+	})
+}
 
 type deferredPromise[T any] struct {
 	promise executor.CompletableFuture[T]
@@ -165,11 +185,11 @@ func Local[T any](hook Hook[T], options ...opts.Option[ExecutionContext]) Execut
 		promise: fut,
 		hook:    hook,
 	}
+
 	execCtx := ExecutionContext{
-		executor:       executor.NewLocal(),
-		responseSchema: jsonSchema[T](),
-		hook:           hook,
-		promise:        dp,
+		executor: executor.NewLocal(),
+		hook:     hook,
+		promise:  dp,
 		onClose: func(ctx context.Context) {
 			dp.Forward(ctx)
 			hook.OnClose(ctx)
@@ -190,7 +210,7 @@ func (p *Parliament) Run(ctx context.Context, rc ExecutionContext) error {
 
 	for i, step := range p.steps {
 		var promise executor.Promise
-		var schema *jsonschema.Schema
+		var schema *provider.StructuredOutput
 		if i < maxItems {
 			slog.Debug("using noop promise, not the last step")
 			promise = noopPromise{}
@@ -244,71 +264,4 @@ type Hook[T any] interface {
 	events.Hook
 	OnResult(context.Context, T)
 	OnClose(context.Context)
-}
-
-func HookFuture[T any](hook Hook[T]) (Hook[T], Future[T]) {
-	fhook := &hookFuture[T]{
-		inner: hook,
-	}
-
-	fut := executor.NewFuture(executor.DefaultUnmarshal[T]())
-	go func() {
-		result, err := fut.Get()
-		if err != nil {
-			hook.OnError(context.Background(), err)
-			return
-		}
-		hook.OnResult(context.Background(), result)
-	}()
-	fhook.fut = fut
-	return fhook, fhook.fut
-}
-
-type hookFuture[T any] struct {
-	inner Hook[T]
-	fut   executor.CompletableFuture[T]
-}
-
-func (f *hookFuture[T]) OnUserPrompt(ctx context.Context, msg messages.Message[messages.UserMessage]) {
-	f.inner.OnUserPrompt(ctx, msg)
-}
-
-func (f *hookFuture[T]) OnAssistantChunk(ctx context.Context, msg messages.Message[messages.AssistantMessage]) {
-	f.inner.OnAssistantChunk(ctx, msg)
-}
-
-func (f *hookFuture[T]) OnToolCallChunk(ctx context.Context, msg messages.Message[messages.ToolCallMessage]) {
-	f.inner.OnToolCallChunk(ctx, msg)
-}
-
-func (f *hookFuture[T]) OnAssistantMessage(ctx context.Context, msg messages.Message[messages.AssistantMessage]) {
-	f.inner.OnAssistantMessage(ctx, msg)
-}
-
-func (f *hookFuture[T]) OnToolCallMessage(ctx context.Context, msg messages.Message[messages.ToolCallMessage]) {
-	f.inner.OnToolCallMessage(ctx, msg)
-}
-
-func (f *hookFuture[T]) OnToolCallResponse(ctx context.Context, msg messages.Message[messages.ToolResponse]) {
-	f.inner.OnToolCallResponse(ctx, msg)
-}
-
-func (f *hookFuture[T]) OnError(ctx context.Context, err error) {
-	f.inner.OnError(ctx, err)
-}
-
-func (f *hookFuture[T]) OnResult(ctx context.Context, result T) {
-	f.inner.OnResult(ctx, result)
-}
-
-func (f *hookFuture[T]) OnClose(ctx context.Context) {
-	f.inner.OnClose(ctx)
-}
-
-func (f hookFuture[T]) AsFuture() Future[T] {
-	return f.fut
-}
-
-type AsFuture[T any] interface {
-	AsFuture() Future[T]
 }

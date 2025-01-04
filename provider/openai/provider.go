@@ -76,8 +76,8 @@ func (p *Provider) buildRequest(_ context.Context, params *provider.CompletionPa
 		oaiParams.ResponseFormat = openai.F[openai.ChatCompletionNewParamsResponseFormatUnion](openai.ResponseFormatJSONSchemaParam{
 			Type: openai.F(openai.ResponseFormatJSONSchemaTypeJSONSchema),
 			JSONSchema: openai.F(openai.ResponseFormatJSONSchemaJSONSchemaParam{
-				Name:        openai.String("result"),
-				Description: openai.String("the result"),
+				Name:        openai.String(params.ResponseSchema.Name),
+				Description: openai.String(params.ResponseSchema.Description),
 				Schema:      openai.F[any](params.ResponseSchema),
 				Strict:      openai.Bool(true),
 			}),
@@ -252,21 +252,36 @@ func messagesToOpenAI(instructions string, iter iter.Seq[messages.Message[messag
 			am := openai.ChatCompletionAssistantMessageParam{
 				Role: openai.F(openai.ChatCompletionAssistantMessageParamRoleAssistant),
 			}
+
+			lookAtParts := true
 			if msg.Content.Content != "" {
-				am.Content.Value = append(am.Content.Value, openai.TextPart(msg.Content.Content))
+				lookAtParts = false
+				am.Content = openai.F([]openai.ChatCompletionAssistantMessageParamContentUnion{
+					openai.TextPart(msg.Content.Content),
+				})
 			}
 			if msg.Content.Refusal != "" {
-				am.Content.Value = append(am.Content.Value, openai.RefusalPart(msg.Content.Refusal))
+				lookAtParts = false
+				am.Content = openai.F([]openai.ChatCompletionAssistantMessageParamContentUnion{
+					openai.RefusalPart(msg.Content.Refusal),
+				})
 			}
 			if msg.Refusal != "" {
+				lookAtParts = false
 				am.Refusal = openai.String(msg.Refusal)
 			}
-			for _, part := range msg.Content.Parts {
-				switch part := part.(type) {
-				case messages.TextContentPart:
-					am.Content.Value = append(am.Content.Value, openai.TextPart(part.Text))
-				case messages.RefusalContentPart:
-					am.Content.Value = append(am.Content.Value, openai.RefusalPart(part.Refusal))
+
+			if lookAtParts {
+				for _, part := range msg.Content.Parts {
+					if len(am.Content.Value) == 0 {
+						am.Content = openai.F([]openai.ChatCompletionAssistantMessageParamContentUnion{})
+					}
+					switch part := part.(type) {
+					case messages.TextContentPart:
+						am.Content.Value = append(am.Content.Value, openai.TextPart(part.Text))
+					case messages.RefusalContentPart:
+						am.Content.Value = append(am.Content.Value, openai.RefusalPart(part.Refusal))
+					}
 				}
 			}
 			result = append(result, am)

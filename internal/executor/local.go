@@ -174,7 +174,7 @@ func (l *Local) initiateChatCompletion(ctx context.Context, params *reactorParam
 		Thread:         params.thread,
 		Stream:         params.command.Stream,
 		Model:          params.activeAgent.Model(),
-		ResponseSchema: params.command.ResponseSchema,
+		ResponseSchema: params.command.StructuredOutput,
 		Tools:          params.activeAgent.Tools(),
 	})
 	if err != nil {

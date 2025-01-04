@@ -57,6 +57,7 @@ func (fn FormatterFunc) Format(ctx context.Context, w io.Writer, s *shorttermmem
 func printStreamingMessages[T any](ctx context.Context, w io.Writer, events <-chan buboevents.Event, doneC chan T) error {
 	var content string
 	var lastSender string
+	var streaming bool
 
 	for {
 		select {
@@ -67,9 +68,11 @@ func printStreamingMessages[T any](ctx context.Context, w io.Writer, events <-ch
 				return nil
 			}
 		case event, ok := <-events:
-
 			switch e := event.(type) {
 			case buboevents.Delim:
+				if e.Delim == "start" {
+					streaming = true
+				}
 				if e.Delim == "end" && content != "" {
 					fmt.Fprintln(w)
 					content = ""
@@ -104,6 +107,10 @@ func printStreamingMessages[T any](ctx context.Context, w io.Writer, events <-ch
 					}
 				}
 			case buboevents.Response[messages.AssistantMessage]:
+				if streaming {
+					streaming = false
+					continue
+				}
 				if e.Sender == "" {
 					fmt.Fprint(w, color.MagentaString("Assistant")+": ")
 				} else {
@@ -112,6 +119,10 @@ func printStreamingMessages[T any](ctx context.Context, w io.Writer, events <-ch
 				out, _ := glam.Render(e.Response.Content.Content)
 				fmt.Fprintln(w, out)
 			case buboevents.Response[messages.ToolCallMessage]:
+				if streaming {
+					streaming = false
+					continue
+				}
 				if e.Sender == "" {
 					fmt.Fprint(w, color.YellowString("Tool")+": ")
 				} else {

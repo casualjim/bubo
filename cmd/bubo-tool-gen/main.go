@@ -19,6 +19,8 @@ import (
 	"github.com/go-openapi/swag"
 	"github.com/phsym/zeroslog"
 	"github.com/rs/zerolog"
+
+	"mvdan.cc/gofumpt/format"
 )
 
 var (
@@ -96,7 +98,14 @@ func processGoFile(path string, exportTools bool) error {
 		}
 	}
 
-	err = os.WriteFile(outputPath, []byte(strings.Join(formattedLines, "\n")), 0o600)
+	rawContent := []byte(strings.Join(formattedLines, "\n"))
+	formatted, err := format.Source(rawContent, format.Options{})
+	if err != nil {
+		slog.Error("Failed to format source file", slogx.Error(err))
+		return err
+	}
+
+	err = os.WriteFile(outputPath, formatted, 0o600)
 	if err != nil {
 		slog.Error("Error writing file", slog.String("path", outputPath), slogx.Error(err))
 		return err

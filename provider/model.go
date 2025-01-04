@@ -18,11 +18,17 @@ type CompletionParams struct {
 	Instructions   string
 	Thread         *shorttermmemory.Aggregator
 	Stream         bool
-	ResponseSchema *jsonschema.Schema
+	ResponseSchema *StructuredOutput
 	Model          interface {
 		Name() string
 		Provider() Provider
 	}
 	Tools []tool.Definition
 	_     struct{}
+}
+
+type StructuredOutput struct {
+	Name        string
+	Description string
+	Schema      *jsonschema.Schema
 }

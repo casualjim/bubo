@@ -91,16 +91,24 @@ func (m *mockAgent) RenderInstructions(cv types.ContextVars) (string, error) {
 type mockHook struct {
 	events.Hook
 	onAssistantMessage func(ctx context.Context, msg messages.Message[messages.AssistantMessage])
+	onAssistantChunk   func(ctx context.Context, msg messages.Message[messages.AssistantMessage])
 	onToolCallResponse func(ctx context.Context, msg messages.Message[messages.ToolResponse])
 	onToolCallMessage  func(ctx context.Context, msg messages.Message[messages.ToolCallMessage])
+	onToolCallChunk    func(ctx context.Context, msg messages.Message[messages.ToolCallMessage])
 }
 
 func (h *mockHook) OnUserPrompt(ctx context.Context, msg messages.Message[messages.UserMessage]) {}
 
 func (h *mockHook) OnAssistantChunk(ctx context.Context, msg messages.Message[messages.AssistantMessage]) {
+	if h.onAssistantChunk != nil {
+		h.onAssistantChunk(ctx, msg)
+	}
 }
 
 func (h *mockHook) OnToolCallChunk(ctx context.Context, msg messages.Message[messages.ToolCallMessage]) {
+	if h.onToolCallChunk != nil {
+		h.onToolCallChunk(ctx, msg)
+	}
 }
 
 func (h *mockHook) OnAssistantMessage(ctx context.Context, msg messages.Message[messages.AssistantMessage]) {

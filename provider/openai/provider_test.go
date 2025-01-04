@@ -16,10 +16,12 @@ import (
 	"github.com/casualjim/bubo/provider"
 	"github.com/casualjim/bubo/tool"
 	"github.com/google/uuid"
+	"github.com/invopop/jsonschema"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	orderedmap "github.com/wk8/go-ordered-map/v2"
 )
 
 func TestNew(t *testing.T) {
@@ -52,6 +54,47 @@ func TestProvider_buildRequest_Error(t *testing.T) {
 	_, err := p.buildRequest(ctx, params)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "tool invalid_tool has nil function")
+}
+
+func TestProvider_buildRequest_ResponseSchema(t *testing.T) {
+	p := New()
+	ctx := context.Background()
+	runID := uuid.New()
+	aggregator := shorttermmemory.New()
+
+	props := orderedmap.New[string, *jsonschema.Schema]()
+	props.Set("test", &jsonschema.Schema{Type: "string"})
+
+	schema := &provider.StructuredOutput{
+		Name:        "TestSchema",
+		Description: "Test schema description",
+		Schema: &jsonschema.Schema{
+			Type:       "object",
+			Properties: props,
+		},
+	}
+
+	params := &provider.CompletionParams{
+		RunID:          runID,
+		Instructions:   "Test instructions",
+		Thread:         aggregator,
+		ResponseSchema: schema,
+		Model:          GPT4oMini(),
+	}
+
+	chatParams, err := p.buildRequest(ctx, params)
+	require.NoError(t, err)
+
+	// Verify response schema was properly set
+	require.NotNil(t, chatParams.ResponseFormat)
+	jsonSchema := chatParams.ResponseFormat.Value.(openai.ResponseFormatJSONSchemaParam)
+	assert.Equal(t, openai.ResponseFormatJSONSchemaTypeJSONSchema, jsonSchema.Type.Value)
+
+	schemaParams := jsonSchema.JSONSchema.Value
+	assert.Equal(t, "TestSchema", schemaParams.Name.Value)
+	assert.Equal(t, "Test schema description", schemaParams.Description.Value)
+	assert.True(t, schemaParams.Strict.Value)
+	assert.NotNil(t, schemaParams.Schema.Value)
 }
 
 func TestProvider_buildRequest(t *testing.T) {
@@ -368,6 +411,66 @@ func TestMessagesToOpenAI_ContentParts(t *testing.T) {
 	assert.Equal(t, "mp3", string(audioPart.InputAudio.Value.Format.Value))
 	decodedAudio, _ := base64.StdEncoding.DecodeString(audioPart.InputAudio.Value.Data.Value)
 	assert.Equal(t, []byte("audio data"), decodedAudio)
+}
+
+func TestMessagesToOpenAI_ContentHandling(t *testing.T) {
+	runID := uuid.New()
+	aggregator := shorttermmemory.New()
+
+	// Test different content combinations
+	messages := []messages.Message[messages.ModelMessage]{
+		{
+			RunID:  runID,
+			TurnID: aggregator.ID(),
+			Payload: messages.AssistantMessage{
+				Content: messages.AssistantContentOrParts{
+					Content: "Primary content",
+				},
+			},
+		},
+		{
+			RunID:  runID,
+			TurnID: aggregator.ID(),
+			Payload: messages.AssistantMessage{
+				Content: messages.AssistantContentOrParts{
+					Content: "",
+					Parts: []messages.AssistantContentPart{
+						messages.Text("Only parts"),
+						messages.Refusal("Refusal part"),
+					},
+				},
+			},
+		},
+		{
+			RunID:  runID,
+			TurnID: aggregator.ID(),
+			Payload: messages.AssistantMessage{
+				Content: messages.AssistantContentOrParts{
+					Content: "Content with refusal",
+					Refusal: "Main refusal",
+				},
+			},
+		},
+	}
+
+	result, _ := messagesToOpenAI("Test instructions", slices.Values(messages))
+
+	// Verify system message
+	assert.Len(t, result, 4) // System message + 3 assistant messages
+
+	// Verify primary content takes precedence
+	msg1 := result[1].(openai.ChatCompletionAssistantMessageParam)
+	assert.Equal(t, "Primary content", msg1.Content.Value[0].(openai.ChatCompletionContentPartTextParam).Text.Value)
+
+	// Verify parts are handled when no primary content
+	msg2 := result[2].(openai.ChatCompletionAssistantMessageParam)
+	assert.Len(t, msg2.Content.Value, 2)
+	assert.Equal(t, "Only parts", msg2.Content.Value[0].(openai.ChatCompletionContentPartTextParam).Text.Value)
+	assert.Equal(t, "Refusal part", msg2.Content.Value[1].(openai.ChatCompletionContentPartRefusalParam).Refusal.Value)
+
+	// Verify refusal handling
+	msg3 := result[3].(openai.ChatCompletionAssistantMessageParam)
+	assert.Equal(t, "Main refusal", msg3.Content.Value[0].(openai.ChatCompletionContentPartRefusalParam).Refusal.Value)
 }
 
 func TestMessagesToOpenAI(t *testing.T) {

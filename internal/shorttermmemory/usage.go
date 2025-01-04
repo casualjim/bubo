@@ -14,6 +14,9 @@ type Usage struct {
 }
 
 func (u *Usage) AddUsage(usage *Usage) {
+	if usage == nil {
+		return
+	}
 	u.CompletionTokens += usage.CompletionTokens
 	u.PromptTokens += usage.PromptTokens
 	u.TotalTokens += usage.TotalTokens
@@ -37,6 +40,9 @@ type CompletionTokensDetails struct {
 }
 
 func (c *CompletionTokensDetails) AddUsage(details *CompletionTokensDetails) {
+	if details == nil {
+		return
+	}
 	c.AcceptedPredictionTokens += details.AcceptedPredictionTokens
 	c.AudioTokens += details.AudioTokens
 	c.ReasoningTokens += details.ReasoningTokens
@@ -51,6 +57,9 @@ type PromptTokensDetails struct {
 }
 
 func (p *PromptTokensDetails) AddUsage(details *PromptTokensDetails) {
+	if details == nil {
+		return
+	}
 	p.AudioTokens += details.AudioTokens
 	p.CachedTokens += details.CachedTokens
 }

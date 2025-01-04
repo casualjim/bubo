@@ -253,35 +253,31 @@ func messagesToOpenAI(instructions string, iter iter.Seq[messages.Message[messag
 				Role: openai.F(openai.ChatCompletionAssistantMessageParamRoleAssistant),
 			}
 
-			lookAtParts := true
-			if msg.Content.Content != "" {
-				lookAtParts = false
-				am.Content = openai.F([]openai.ChatCompletionAssistantMessageParamContentUnion{
-					openai.TextPart(msg.Content.Content),
-				})
-			}
-			if msg.Content.Refusal != "" {
-				lookAtParts = false
+			// Handle refusal first since it takes precedence
+			if msg.Refusal != "" {
+				am.Refusal = openai.String(msg.Refusal)
+			} else if msg.Content.Refusal != "" {
 				am.Content = openai.F([]openai.ChatCompletionAssistantMessageParamContentUnion{
 					openai.RefusalPart(msg.Content.Refusal),
 				})
-			}
-			if msg.Refusal != "" {
-				lookAtParts = false
-				am.Refusal = openai.String(msg.Refusal)
-			}
-
-			if lookAtParts {
+			} else if msg.Content.Content != "" {
+				// Handle direct content if no refusal
+				am.Content = openai.F([]openai.ChatCompletionAssistantMessageParamContentUnion{
+					openai.TextPart(msg.Content.Content),
+				})
+			} else if len(msg.Content.Parts) > 0 {
+				// Handle content parts if no direct content
+				parts := make([]openai.ChatCompletionAssistantMessageParamContentUnion, 0, len(msg.Content.Parts))
 				for _, part := range msg.Content.Parts {
-					if len(am.Content.Value) == 0 {
-						am.Content = openai.F([]openai.ChatCompletionAssistantMessageParamContentUnion{})
-					}
 					switch part := part.(type) {
 					case messages.TextContentPart:
-						am.Content.Value = append(am.Content.Value, openai.TextPart(part.Text))
+						parts = append(parts, openai.TextPart(part.Text))
 					case messages.RefusalContentPart:
-						am.Content.Value = append(am.Content.Value, openai.RefusalPart(part.Refusal))
+						parts = append(parts, openai.RefusalPart(part.Refusal))
 					}
+				}
+				if len(parts) > 0 {
+					am.Content = openai.F(parts)
 				}
 			}
 			result = append(result, am)

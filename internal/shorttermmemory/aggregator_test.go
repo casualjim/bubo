@@ -11,6 +11,77 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestAggregator_AddUsage(t *testing.T) {
+	t.Run("adds usage correctly", func(t *testing.T) {
+		agg := New()
+
+		// Add initial usage
+		usage1 := &Usage{
+			CompletionTokens: 10,
+			PromptTokens:     20,
+			TotalTokens:      30,
+			CompletionTokensDetails: CompletionTokensDetails{
+				ReasoningTokens:          5,
+				AcceptedPredictionTokens: 3,
+				RejectedPredictionTokens: 2,
+			},
+			PromptTokensDetails: PromptTokensDetails{
+				CachedTokens: 8,
+				AudioTokens:  4,
+			},
+		}
+		agg.AddUsage(usage1)
+
+		// Add more usage
+		usage2 := &Usage{
+			CompletionTokens: 15,
+			PromptTokens:     25,
+			TotalTokens:      40,
+			CompletionTokensDetails: CompletionTokensDetails{
+				ReasoningTokens:          7,
+				AcceptedPredictionTokens: 4,
+				RejectedPredictionTokens: 3,
+			},
+			PromptTokensDetails: PromptTokensDetails{
+				CachedTokens: 12,
+				AudioTokens:  6,
+			},
+		}
+		agg.AddUsage(usage2)
+
+		// Verify final usage
+		finalUsage := agg.Usage()
+		assert.Equal(t, int64(25), finalUsage.CompletionTokens)
+		assert.Equal(t, int64(45), finalUsage.PromptTokens)
+		assert.Equal(t, int64(70), finalUsage.TotalTokens)
+
+		// Verify completion details
+		assert.Equal(t, int64(12), finalUsage.CompletionTokensDetails.ReasoningTokens)
+		assert.Equal(t, int64(7), finalUsage.CompletionTokensDetails.AcceptedPredictionTokens)
+		assert.Equal(t, int64(5), finalUsage.CompletionTokensDetails.RejectedPredictionTokens)
+
+		// Verify prompt details
+		assert.Equal(t, int64(20), finalUsage.PromptTokensDetails.CachedTokens)
+		assert.Equal(t, int64(10), finalUsage.PromptTokensDetails.AudioTokens)
+	})
+
+	t.Run("handles nil usage", func(t *testing.T) {
+		agg := New()
+
+		// Initial state should be zero
+		initialUsage := agg.Usage()
+		assert.Equal(t, int64(0), initialUsage.CompletionTokens)
+		assert.Equal(t, int64(0), initialUsage.PromptTokens)
+		assert.Equal(t, int64(0), initialUsage.TotalTokens)
+
+		// Adding nil should not panic or change state
+		agg.AddUsage(nil)
+
+		finalUsage := agg.Usage()
+		assert.Equal(t, initialUsage, finalUsage)
+	})
+}
+
 func TestAggregator(t *testing.T) {
 	// Helper function to create an aggregator with valid ID
 	newAggregator := func() *Aggregator {

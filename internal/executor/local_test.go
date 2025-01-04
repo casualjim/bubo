@@ -1029,6 +1029,236 @@ func TestHandleToolCallsSessionEdgeCases(t *testing.T) {
 	})
 }
 
+func TestRunWithStreamingAgentHandoff(t *testing.T) {
+	l := NewLocal()
+
+	nextAgent := &mockAgent{
+		testName: "next_agent",
+		testModel: testModel{provider: &mockProvider{
+			responses: []provider.StreamEvent{
+				provider.Response[messages.AssistantMessage]{
+					Response: messages.AssistantMessage{
+						Content: messages.AssistantContentOrParts{
+							Content: "response from next agent",
+						},
+					},
+				},
+			},
+		}},
+	}
+
+	agent := &mockAgent{
+		testName: "test_agent",
+		testModel: testModel{provider: &mockProvider{
+			responses: []provider.StreamEvent{
+				provider.Delim{Delim: "start"},
+				provider.Chunk[messages.ToolCallMessage]{
+					Chunk: messages.ToolCallMessage{
+						ToolCalls: []messages.ToolCallData{
+							{
+								ID:        "tool1",
+								Name:      "agent_tool",
+								Arguments: "{}",
+							},
+						},
+					},
+				},
+				provider.Delim{Delim: "end"},
+				provider.Response[messages.ToolCallMessage]{
+					Response: messages.ToolCallMessage{
+						ToolCalls: []messages.ToolCallData{
+							{
+								ID:        "tool1",
+								Name:      "agent_tool",
+								Arguments: "{}",
+							},
+						},
+					},
+				},
+			},
+		}},
+		testTools: []tool.Definition{
+			{
+				Name: "agent_tool",
+				Function: func() api.Owl {
+					return nextAgent
+				},
+			},
+		},
+	}
+
+	thread := shorttermmemory.New()
+
+	var toolCallChunks []messages.ToolCallMessage
+	var toolCallResponses []messages.ToolCallMessage
+	var assistantMessages []messages.AssistantMessage
+	hook := &mockHook{
+		onToolCallChunk: func(ctx context.Context, msg messages.Message[messages.ToolCallMessage]) {
+			toolCallChunks = append(toolCallChunks, msg.Payload)
+		},
+		onToolCallMessage: func(ctx context.Context, msg messages.Message[messages.ToolCallMessage]) {
+			toolCallResponses = append(toolCallResponses, msg.Payload)
+		},
+		onAssistantMessage: func(ctx context.Context, msg messages.Message[messages.AssistantMessage]) {
+			assistantMessages = append(assistantMessages, msg.Payload)
+		},
+	}
+
+	cmd, err := NewRunCommand(agent, thread, hook)
+	require.NoError(t, err)
+	cmd = cmd.WithStream(true)
+
+	fut := NewFuture(DefaultUnmarshal[string]())
+	err = l.Run(context.Background(), cmd, fut)
+	require.NoError(t, err)
+
+	// Verify streaming responses
+	assert.Len(t, toolCallChunks, 1, "Should receive one tool call chunk")
+	assert.Len(t, toolCallResponses, 1, "Should receive tool call response for agent transfer")
+	assert.Len(t, assistantMessages, 1, "Should receive final response from next agent")
+	assert.Equal(t, "response from next agent", assistantMessages[0].Content.Content)
+
+	result, err := fut.Get()
+	require.NoError(t, err)
+	assert.Equal(t, "response from next agent", result)
+}
+
+func TestRunWithStreamingToolCalls(t *testing.T) {
+	l := NewLocal()
+
+	agent := &mockAgent{
+		testName: "test_agent",
+		testModel: testModel{provider: &mockProvider{
+			responses: []provider.StreamEvent{
+				provider.Delim{Delim: "start"},
+				provider.Chunk[messages.ToolCallMessage]{
+					Chunk: messages.ToolCallMessage{
+						ToolCalls: []messages.ToolCallData{
+							{
+								ID:        "tool1",
+								Name:      "test_tool",
+								Arguments: `{"arg": "value"}`,
+							},
+						},
+					},
+				},
+				provider.Delim{Delim: "end"},
+				provider.Response[messages.ToolCallMessage]{
+					Response: messages.ToolCallMessage{
+						ToolCalls: []messages.ToolCallData{
+							{
+								ID:        "tool1",
+								Name:      "test_tool",
+								Arguments: `{"arg": "value"}`,
+							},
+						},
+					},
+				},
+				provider.Response[messages.AssistantMessage]{
+					Response: messages.AssistantMessage{
+						Content: messages.AssistantContentOrParts{
+							Content: "tool result",
+						},
+					},
+				},
+			},
+		}},
+		testTools: []tool.Definition{
+			{
+				Name: "test_tool",
+				Function: func() string {
+					return "tool result"
+				},
+			},
+		},
+	}
+
+	thread := shorttermmemory.New()
+
+	var toolCallChunks []messages.ToolCallMessage
+	var toolCallResponses []messages.ToolCallMessage
+	hook := &mockHook{
+		onToolCallChunk: func(ctx context.Context, msg messages.Message[messages.ToolCallMessage]) {
+			toolCallChunks = append(toolCallChunks, msg.Payload)
+		},
+		onToolCallMessage: func(ctx context.Context, msg messages.Message[messages.ToolCallMessage]) {
+			toolCallResponses = append(toolCallResponses, msg.Payload)
+		},
+	}
+
+	cmd, err := NewRunCommand(agent, thread, hook)
+	require.NoError(t, err)
+	cmd = cmd.WithStream(true)
+
+	fut := NewFuture(DefaultUnmarshal[string]())
+	err = l.Run(context.Background(), cmd, fut)
+	require.NoError(t, err)
+
+	// Verify streaming responses
+	assert.Len(t, toolCallChunks, 1, "Should receive one tool call chunk")
+	assert.Len(t, toolCallResponses, 1, "Should receive tool call response")
+
+	result, err := fut.Get()
+	require.NoError(t, err)
+	assert.Equal(t, "tool result", result)
+}
+
+func TestRunWithStreaming(t *testing.T) {
+	l := NewLocal()
+
+	agent := &mockAgent{
+		testName: "test_agent",
+		testModel: testModel{provider: &mockProvider{
+			responses: []provider.StreamEvent{
+				provider.Delim{Delim: "start"},
+				provider.Chunk[messages.AssistantMessage]{
+					Chunk: messages.AssistantMessage{
+						Content: messages.AssistantContentOrParts{
+							Content: "streaming chunk",
+						},
+					},
+				},
+				provider.Delim{Delim: "end"},
+				provider.Response[messages.AssistantMessage]{
+					Response: messages.AssistantMessage{
+						Content: messages.AssistantContentOrParts{
+							Content: "streaming chunk", // Same content as chunk
+						},
+					},
+				},
+			},
+		}},
+	}
+
+	thread := shorttermmemory.New()
+
+	var streamingResponses []string
+	hook := &mockHook{
+		onAssistantChunk: func(ctx context.Context, msg messages.Message[messages.AssistantMessage]) {
+			streamingResponses = append(streamingResponses, msg.Payload.Content.Content)
+		},
+		onAssistantMessage: func(ctx context.Context, msg messages.Message[messages.AssistantMessage]) {
+			streamingResponses = append(streamingResponses, msg.Payload.Content.Content)
+		},
+	}
+
+	cmd, err := NewRunCommand(agent, thread, hook)
+	require.NoError(t, err)
+	cmd = cmd.WithStream(true)
+
+	fut := NewFuture(DefaultUnmarshal[string]())
+	err = l.Run(context.Background(), cmd, fut)
+	require.NoError(t, err)
+
+	// Verify streaming responses
+	assert.Equal(t, []string{"streaming chunk", "streaming chunk"}, streamingResponses,
+		"Should receive both streaming chunk and final response")
+
+	result, err := fut.Get()
+	require.NoError(t, err)
+	assert.Equal(t, "streaming chunk", result)
+}
+
 func TestRunWithAgentChain(t *testing.T) {
 	l := NewLocal()
 
@@ -1175,10 +1405,10 @@ func TestRunWithAgentChain(t *testing.T) {
 	require.NoError(t, err)
 
 	msgs := thread.Messages()
-	assert.Len(t, msgs, 1, "Should have 1 message total")
+	assert.Equal(t, 1, len(msgs), "Should have final message in chain")
 
-	assert.Len(t, toolResponses, 1)
-	assert.Len(t, assistantMessages, 1)
+	assert.Len(t, toolResponses, 1, "Should have final tool response")
+	assert.Len(t, assistantMessages, 1, "Should have final assistant message")
 
 	// Only verify senders if we have enough messages
 	if assert.Len(t, toolCallMessages, 3) {

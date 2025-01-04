@@ -110,6 +110,11 @@ func (r RunCommand) WithContextVariables(contextVariables types.ContextVars) Run
 	return r
 }
 
+func (r RunCommand) WithResponseSchema(schema *jsonschema.Schema) RunCommand {
+	r.ResponseSchema = schema
+	return r
+}
+
 func DefaultUnmarshal[T any]() func([]byte) (T, error) {
 	var responseUnmarshaler func([]byte) (T, error)
 

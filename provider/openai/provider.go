@@ -72,6 +72,18 @@ func (p *Provider) buildRequest(_ context.Context, params *provider.CompletionPa
 	if strings.TrimSpace(user) != "" {
 		oaiParams.User = openai.String(user)
 	}
+	if params.ResponseSchema != nil {
+		oaiParams.ResponseFormat = openai.F[openai.ChatCompletionNewParamsResponseFormatUnion](openai.ResponseFormatJSONSchemaParam{
+			Type: openai.F(openai.ResponseFormatJSONSchemaTypeJSONSchema),
+			JSONSchema: openai.F(openai.ResponseFormatJSONSchemaJSONSchemaParam{
+				Name:        openai.String("result"),
+				Description: openai.String("the result"),
+				Schema:      openai.F[any](params.ResponseSchema),
+				Strict:      openai.Bool(true),
+			}),
+		})
+		// oaiParams.
+	}
 
 	return oaiParams, nil
 }

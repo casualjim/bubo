@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/casualjim/bubo"
@@ -12,6 +13,7 @@ import (
 	"github.com/casualjim/bubo/internal/shorttermmemory"
 	"github.com/casualjim/bubo/messages"
 	"github.com/casualjim/bubo/pkg/slogx"
+	"github.com/charmbracelet/glamour"
 	"github.com/fatih/color"
 )
 
@@ -20,6 +22,18 @@ type Formatter interface {
 }
 
 type FormatterFunc func(context.Context, io.Writer, *shorttermmemory.Aggregator) error
+
+var glam *glamour.TermRenderer
+
+func init() {
+	var err error
+	glam, err = glamour.NewTermRenderer(
+		glamour.WithAutoStyle(),
+	)
+	if err != nil {
+		panic(err)
+	}
+}
 
 func ConsolePretty[T any](ctx context.Context, w io.Writer, events <-chan buboevents.Event) error {
 	return printStreamingMessages[T](ctx, w, events, make(chan T))
@@ -89,6 +103,28 @@ func printStreamingMessages[T any](ctx context.Context, w io.Writer, events <-ch
 						fmt.Fprintf(w, "%s%s\n", color.YellowString(tc.Name), args)
 					}
 				}
+			case buboevents.Response[messages.AssistantMessage]:
+				if e.Sender == "" {
+					fmt.Fprint(w, color.MagentaString("Assistant")+": ")
+				} else {
+					fmt.Fprint(w, color.MagentaString(e.Sender)+": ")
+				}
+				out, _ := glam.Render(e.Response.Content.Content)
+				fmt.Fprintln(w, out)
+			case buboevents.Response[messages.ToolCallMessage]:
+				if e.Sender == "" {
+					fmt.Fprint(w, color.YellowString("Tool")+": ")
+				} else {
+					fmt.Fprint(w, color.YellowString(e.Sender)+": ")
+				}
+				if len(e.Response.ToolCalls) > 1 {
+					fmt.Fprintln(w)
+				}
+
+				for tc := range slices.Values(e.Response.ToolCalls) {
+					args := strings.ReplaceAll(tc.Arguments, ": ", "=")
+					fmt.Fprintf(w, "%s%s\n", color.YellowString(tc.Name), args)
+				}
 			case buboevents.Result[T]:
 				doneC <- e.Result
 			case buboevents.Error:
@@ -113,7 +149,7 @@ type consoleHook[T any] struct {
 }
 
 func (c *consoleHook[T]) OnUserPrompt(ctx context.Context, msg messages.Message[messages.UserMessage]) {
-	slog.InfoContext(ctx, "user prompt", slog.Any("message", msg))
+	slog.InfoContext(ctx, "user prompt", slog.Any("msg", msg))
 	c.ch <- buboevents.Request[messages.UserMessage]{
 		RunID:     msg.RunID,
 		TurnID:    msg.TurnID,
@@ -125,7 +161,7 @@ func (c *consoleHook[T]) OnUserPrompt(ctx context.Context, msg messages.Message[
 }
 
 func (c *consoleHook[T]) OnAssistantChunk(ctx context.Context, msg messages.Message[messages.AssistantMessage]) {
-	slog.InfoContext(ctx, "assistant chunk", slog.Any("message", msg))
+	slog.InfoContext(ctx, "assistant chunk", slog.Any("msg", msg))
 	c.ch <- buboevents.Chunk[messages.AssistantMessage]{
 		RunID:     msg.RunID,
 		TurnID:    msg.TurnID,
@@ -137,7 +173,7 @@ func (c *consoleHook[T]) OnAssistantChunk(ctx context.Context, msg messages.Mess
 }
 
 func (c *consoleHook[T]) OnToolCallChunk(ctx context.Context, msg messages.Message[messages.ToolCallMessage]) {
-	slog.InfoContext(ctx, "tool call chunk", slog.Any("message", msg))
+	slog.InfoContext(ctx, "tool call chunk", slog.Any("msg", msg))
 	c.ch <- buboevents.Chunk[messages.ToolCallMessage]{
 		RunID:     msg.RunID,
 		TurnID:    msg.TurnID,
@@ -149,7 +185,7 @@ func (c *consoleHook[T]) OnToolCallChunk(ctx context.Context, msg messages.Messa
 }
 
 func (c *consoleHook[T]) OnAssistantMessage(ctx context.Context, msg messages.Message[messages.AssistantMessage]) {
-	slog.InfoContext(ctx, "assistant message", slog.Any("message", msg))
+	slog.Info("assistant message", slog.Any("msg", msg))
 	c.ch <- buboevents.Response[messages.AssistantMessage]{
 		RunID:     msg.RunID,
 		TurnID:    msg.TurnID,
@@ -161,7 +197,7 @@ func (c *consoleHook[T]) OnAssistantMessage(ctx context.Context, msg messages.Me
 }
 
 func (c *consoleHook[T]) OnToolCallMessage(ctx context.Context, msg messages.Message[messages.ToolCallMessage]) {
-	slog.InfoContext(ctx, "tool call message", slog.Any("message", msg))
+	slog.InfoContext(ctx, "tool call message", slog.Any("msg", msg))
 	c.ch <- buboevents.Response[messages.ToolCallMessage]{
 		RunID:     msg.RunID,
 		TurnID:    msg.TurnID,
@@ -173,7 +209,7 @@ func (c *consoleHook[T]) OnToolCallMessage(ctx context.Context, msg messages.Mes
 }
 
 func (c *consoleHook[T]) OnToolCallResponse(ctx context.Context, msg messages.Message[messages.ToolResponse]) {
-	slog.InfoContext(ctx, "tool call respons", slog.Any("message", msg))
+	slog.InfoContext(ctx, "tool call response", slog.Any("msg", msg))
 	c.ch <- buboevents.Request[messages.ToolResponse]{
 		RunID:     msg.RunID,
 		TurnID:    msg.TurnID,
@@ -187,11 +223,14 @@ func (c *consoleHook[T]) OnToolCallResponse(ctx context.Context, msg messages.Me
 func (c *consoleHook[T]) OnResult(ctx context.Context, result T) {
 	slog.InfoContext(ctx, "completion result", slog.Any("result", result))
 	c.ch <- buboevents.Result[T]{Result: result}
-	close(c.ch)
 }
 
 func (c *consoleHook[T]) OnError(ctx context.Context, err error) {
 	slog.ErrorContext(ctx, "completion error", slogx.Error(err))
 	c.ch <- buboevents.Error{Err: err}
+}
+
+func (c *consoleHook[T]) OnClose(ctx context.Context) {
+	slog.InfoContext(ctx, "completion closed")
 	close(c.ch)
 }

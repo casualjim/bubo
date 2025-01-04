@@ -87,7 +87,7 @@
                 enable = true;
                 name = "golangci-lint";
                 description = "Run golangci-lint on Go files";
-                entry = "env PATH=${pkgs.go}/bin:$PATH ${pkgs.golangci-lint}/bin/golangci-lint run";
+                entry = "env PATH=${pkgs.go}/bin:${pkgs.diffutils}/bin:$PATH ${pkgs.golangci-lint}/bin/golangci-lint run";
                 types = [ "go" ];
                 pass_filenames = false;
               };
@@ -100,6 +100,7 @@
         devShells.default = pkgs.mkShell {
           packages = with pkgs; [
             actionlint
+            diffutils
             gcc
             pkg-config
             git

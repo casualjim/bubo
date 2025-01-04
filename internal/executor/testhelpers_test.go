@@ -92,6 +92,7 @@ type mockHook struct {
 	events.Hook
 	onAssistantMessage func(ctx context.Context, msg messages.Message[messages.AssistantMessage])
 	onToolCallResponse func(ctx context.Context, msg messages.Message[messages.ToolResponse])
+	onToolCallMessage  func(ctx context.Context, msg messages.Message[messages.ToolCallMessage])
 }
 
 func (h *mockHook) OnUserPrompt(ctx context.Context, msg messages.Message[messages.UserMessage]) {}
@@ -109,6 +110,9 @@ func (h *mockHook) OnAssistantMessage(ctx context.Context, msg messages.Message[
 }
 
 func (h *mockHook) OnToolCallMessage(ctx context.Context, msg messages.Message[messages.ToolCallMessage]) {
+	if h.onToolCallMessage != nil {
+		h.onToolCallMessage(ctx, msg)
+	}
 }
 
 func (h *mockHook) OnToolCallResponse(ctx context.Context, msg messages.Message[messages.ToolResponse]) {

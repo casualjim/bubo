@@ -43,7 +43,7 @@ var weatherOwl = owl.New(
 )
 
 func main() {
-	slog.Info("running basic/structured output example")
+	slog.Info("running basic/structured-output example")
 	ctx := context.Background()
 
 	hook, result := msgfmt.Console[Response](ctx, os.Stdout)

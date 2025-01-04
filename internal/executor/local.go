@@ -330,9 +330,6 @@ func (l *Local) handleToolCallResponse(ctx context.Context, event provider.Respo
 		return err
 	}
 
-	// Always join threads before potential transfer
-	params.thread.Join(forked)
-
 	// Handle agent transfer after joining threads
 	if nextAgent != nil {
 		params.activeAgent = nextAgent

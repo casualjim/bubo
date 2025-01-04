@@ -1151,16 +1151,19 @@ func TestRunWithAgentChain(t *testing.T) {
 	}
 
 	thread := shorttermmemory.New()
-	initialLen := thread.Len()
 
-	var toolResponses []messages.ToolResponse
-	var assistantMessages []messages.AssistantMessage
+	var toolResponses []messages.Message[messages.ToolResponse]
+	var toolCallMessages []messages.Message[messages.ToolCallMessage]
+	var assistantMessages []messages.Message[messages.AssistantMessage]
 	hook := &mockHook{
+		onToolCallMessage: func(ctx context.Context, msg messages.Message[messages.ToolCallMessage]) {
+			toolCallMessages = append(toolCallMessages, msg)
+		},
 		onToolCallResponse: func(ctx context.Context, msg messages.Message[messages.ToolResponse]) {
-			toolResponses = append(toolResponses, msg.Payload)
+			toolResponses = append(toolResponses, msg)
 		},
 		onAssistantMessage: func(ctx context.Context, msg messages.Message[messages.AssistantMessage]) {
-			assistantMessages = append(assistantMessages, msg.Payload)
+			assistantMessages = append(assistantMessages, msg)
 		},
 	}
 
@@ -1172,18 +1175,40 @@ func TestRunWithAgentChain(t *testing.T) {
 	require.NoError(t, err)
 
 	msgs := thread.Messages()
-	assert.Equal(t, initialLen+5, len(msgs), "Should have 5 messages total")
+	assert.Len(t, msgs, 1, "Should have 1 message total")
+
+	assert.Len(t, toolResponses, 1)
+	assert.Len(t, assistantMessages, 1)
 
 	// Only verify senders if we have enough messages
-	if len(msgs) >= 4 {
+	if assert.Len(t, toolCallMessages, 3) {
 		var senders []string
-		for _, msg := range msgs {
+		for _, msg := range toolCallMessages {
 			senders = append(senders, msg.Sender)
 		}
 		expectedSenders := []string{
 			"agent1", // transfer_to_agent2
 			"agent2", // transfer_to_agent3
 			"agent3", // final_tool
+		}
+		assert.Equal(t, expectedSenders, senders[:len(expectedSenders)])
+	}
+	if assert.Len(t, toolResponses, 1) {
+		var senders []string
+		for _, msg := range toolResponses {
+			senders = append(senders, msg.Sender)
+		}
+		expectedSenders := []string{
+			"agent3", // final assistant message
+		}
+		assert.Equal(t, expectedSenders, senders[:len(expectedSenders)])
+	}
+	if assert.Len(t, assistantMessages, 1) {
+		var senders []string
+		for _, msg := range assistantMessages {
+			senders = append(senders, msg.Sender)
+		}
+		expectedSenders := []string{
 			"agent3", // final assistant message
 		}
 		assert.Equal(t, expectedSenders, senders[:len(expectedSenders)])

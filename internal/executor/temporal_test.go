@@ -332,6 +332,612 @@ func TestTemporalRunCompletion(t *testing.T) {
 	})
 }
 
+func TestTemporalToolCallsWithComplexTypes(t *testing.T) {
+	t.Run("struct return", func(t *testing.T) {
+		env := setupTestEnvironment(t)
+
+		// Register workflow and activities
+		env.env.RegisterWorkflow(env.temporal.Run)
+		env.env.RegisterWorkflow(env.temporal.RunChildWorkflow)
+		env.env.RegisterActivity(env.temporal.RunCompletion)
+		env.env.RegisterActivity(env.temporal.CallTool)
+
+		agent := mocks.NewAgent(t)
+		prov := mocks.NewProvider(t)
+		model := mocks.NewModel(t)
+
+		runID := uuidx.New()
+		turnID := uuidx.New()
+
+		// Register mock agent in the global registry
+		agent.EXPECT().Name().Return("test_agent").Times(1) // Called for registration and tool call
+		agent.EXPECT().Tools().Return([]tool.Definition{    // Called for tool lookup and tool call
+			{
+				Name: "complex_tool",
+				Function: func() struct {
+					Name   string
+					Value  int
+					Nested struct{ Flag bool }
+				} {
+					return struct {
+						Name   string
+						Value  int
+						Nested struct{ Flag bool }
+					}{
+						Name:  "test",
+						Value: 42,
+						Nested: struct{ Flag bool }{
+							Flag: true,
+						},
+					}
+				},
+			},
+		}).Times(1)
+		buboagent.Add(agent)
+
+		// Set up and register mock model
+		model.EXPECT().Name().Return("test_model").Times(1) // Called for registration
+		model.EXPECT().Provider().Return(prov).Times(2)     // Called for registration
+		models.Add(model)
+
+		// Clean up registries after test
+		t.Cleanup(func() {
+			buboagent.Del("test_agent")
+			models.Del("test_model")
+		})
+
+		// Set up memory with initial content
+		mem := shorttermmemory.New()
+		userMsg := messages.Message[messages.UserMessage]{
+			RunID:  runID,
+			TurnID: turnID,
+			Payload: messages.UserMessage{
+				Content: messages.ContentOrParts{
+					Content: "Test complex tool returns",
+				},
+			},
+			Sender:    "user",
+			Timestamp: strfmt.DateTime(time.Now()),
+		}
+		mem.AddUserPrompt(userMsg)
+
+		// First completion returns tool call
+		toolCallEvents := make(chan provider.StreamEvent, 1)
+		toolCallEvents <- provider.Response[messages.ToolCallMessage]{
+			RunID:      runID,
+			TurnID:     turnID,
+			Checkpoint: mem.Checkpoint(),
+			Response: messages.ToolCallMessage{
+				ToolCalls: []messages.ToolCallData{
+					{
+						ID:        "tool1",
+						Name:      "complex_tool",
+						Arguments: "{}",
+					},
+				},
+			},
+		}
+		close(toolCallEvents)
+
+		// Final completion returns response
+		finalEvents := make(chan provider.StreamEvent, 1)
+		finalEvents <- provider.Response[messages.AssistantMessage]{
+			RunID:      runID,
+			TurnID:     turnID,
+			Checkpoint: mem.Checkpoint(),
+			Response: messages.AssistantMessage{
+				Content: messages.AssistantContentOrParts{
+					Content: "final response",
+				},
+			},
+		}
+		close(finalEvents)
+
+		// Setup provider expectations
+		prov.EXPECT().ChatCompletion(mock.Anything, mock.MatchedBy(func(p provider.CompletionParams) bool {
+			return p.RunID == runID
+		})).Return(toolCallEvents, nil).Once()
+
+		prov.EXPECT().ChatCompletion(mock.Anything, mock.MatchedBy(func(p provider.CompletionParams) bool {
+			return p.RunID == runID
+		})).Return(finalEvents, nil).Once()
+
+		// Setup topic expectations
+		mockTopic := mocks.NewTopic(t)
+		env.broker.EXPECT().Topic(mock.Anything, runID.String()).Return(mockTopic).Times(3)
+
+		// Expect tool call response, tool response, and final response
+		var toolResponse string
+		mockTopic.EXPECT().Publish(mock.Anything, mock.MatchedBy(func(msg interface{}) bool {
+			evt, ok := msg.(events.Event)
+			if !ok {
+				return false
+			}
+			if resp, ok := evt.(events.Request[messages.ToolResponse]); ok {
+				toolResponse = resp.Message.Content
+				return true
+			}
+			return true
+		})).Return(nil).Times(3)
+
+		var result string
+		env.env.ExecuteWorkflow(env.temporal.Run, RemoteRunCommand{
+			ID: runID,
+			Agent: RemoteAgent{
+				Name:  "test_agent",
+				Model: "test_model",
+			},
+			MaxTurns:   10,
+			Checkpoint: mem.Checkpoint(),
+		})
+
+		require.True(t, env.env.IsWorkflowCompleted())
+		require.NoError(t, env.env.GetWorkflowError())
+		require.NoError(t, env.env.GetWorkflowResult(&result))
+		assert.Equal(t, "final response", result)
+		assert.Contains(t, toolResponse, `{"Name":"test","Value":42,"Nested":{"Flag":true}}`)
+	})
+
+	t.Run("text marshaler success", func(t *testing.T) {
+		env := setupTestEnvironment(t)
+
+		// Register workflow and activities
+		env.env.RegisterWorkflow(env.temporal.Run)
+		env.env.RegisterWorkflow(env.temporal.RunChildWorkflow)
+		env.env.RegisterActivity(env.temporal.RunCompletion)
+		env.env.RegisterActivity(env.temporal.CallTool)
+
+		agent := mocks.NewAgent(t)
+		prov := mocks.NewProvider(t)
+		model := mocks.NewModel(t)
+
+		runID := uuidx.New()
+		turnID := uuidx.New()
+
+		// Register mock agent with text marshaler tool
+		agent.EXPECT().Name().Return("test_agent")
+		agent.EXPECT().Tools().Return([]tool.Definition{
+			{
+				Name: "marshaler_tool",
+				Function: func() textMarshaler {
+					return textMarshaler{shouldError: false}
+				},
+			},
+		})
+		buboagent.Add(agent)
+
+		// Set up and register mock model
+		model.EXPECT().Name().Return("test_model")
+		model.EXPECT().Provider().Return(prov)
+		models.Add(model)
+
+		// Clean up registries after test
+		t.Cleanup(func() {
+			buboagent.Del("test_agent")
+			models.Del("test_model")
+		})
+
+		// Setup provider expectations
+		toolCallEvents := make(chan provider.StreamEvent, 1)
+		toolCallEvents <- provider.Response[messages.ToolCallMessage]{
+			RunID:  runID,
+			TurnID: turnID,
+			Response: messages.ToolCallMessage{
+				ToolCalls: []messages.ToolCallData{
+					{
+						ID:        "tool1",
+						Name:      "marshaler_tool",
+						Arguments: "{}",
+					},
+				},
+			},
+		}
+		close(toolCallEvents)
+
+		finalEvents := make(chan provider.StreamEvent, 1)
+		finalEvents <- provider.Response[messages.AssistantMessage]{
+			RunID:  runID,
+			TurnID: turnID,
+			Response: messages.AssistantMessage{
+				Content: messages.AssistantContentOrParts{
+					Content: "final response",
+				},
+			},
+		}
+		close(finalEvents)
+
+		prov.EXPECT().ChatCompletion(mock.Anything, mock.MatchedBy(func(p provider.CompletionParams) bool {
+			return p.RunID == runID
+		})).Return(toolCallEvents, nil).Once()
+
+		prov.EXPECT().ChatCompletion(mock.Anything, mock.MatchedBy(func(p provider.CompletionParams) bool {
+			return p.RunID == runID
+		})).Return(finalEvents, nil).Once()
+
+		// Setup topic expectations
+		mockTopic := mocks.NewTopic(t)
+		env.broker.EXPECT().Topic(mock.Anything, runID.String()).Return(mockTopic).Times(3)
+
+		var toolResponse string
+		mockTopic.EXPECT().Publish(mock.Anything, mock.MatchedBy(func(msg interface{}) bool {
+			evt, ok := msg.(events.Event)
+			if !ok {
+				return false
+			}
+			if resp, ok := evt.(events.Request[messages.ToolResponse]); ok {
+				toolResponse = resp.Message.Content
+			}
+			return true
+		})).Return(nil).Times(3)
+
+		env.env.ExecuteWorkflow(env.temporal.Run, RemoteRunCommand{
+			ID: runID,
+			Agent: RemoteAgent{
+				Name:  "test_agent",
+				Model: "test_model",
+			},
+			MaxTurns: 10,
+		})
+
+		require.True(t, env.env.IsWorkflowCompleted())
+		require.NoError(t, env.env.GetWorkflowError())
+		assert.Equal(t, "marshaled text", toolResponse)
+	})
+
+	t.Run("text marshaler error", func(t *testing.T) {
+		env := setupTestEnvironment(t)
+
+		// Register workflow and activities
+		env.env.RegisterWorkflow(env.temporal.Run)
+		env.env.RegisterWorkflow(env.temporal.RunChildWorkflow)
+		env.env.RegisterActivity(env.temporal.RunCompletion)
+		env.env.RegisterActivity(env.temporal.CallTool)
+
+		agent := mocks.NewAgent(t)
+		prov := mocks.NewProvider(t)
+		model := mocks.NewModel(t)
+
+		runID := uuidx.New()
+		turnID := uuidx.New()
+
+		// Register mock agent with failing text marshaler tool
+		agent.EXPECT().Name().Return("test_agent")
+		agent.EXPECT().Tools().Return([]tool.Definition{
+			{
+				Name: "marshaler_tool",
+				Function: func() textMarshaler {
+					return textMarshaler{shouldError: true}
+				},
+			},
+		})
+		buboagent.Add(agent)
+
+		// Set up and register mock model
+		model.EXPECT().Name().Return("test_model")
+		model.EXPECT().Provider().Return(prov)
+		models.Add(model)
+
+		// Clean up registries after test
+		t.Cleanup(func() {
+			buboagent.Del("test_agent")
+			models.Del("test_model")
+		})
+
+		// Setup provider expectations
+		toolCallEvents := make(chan provider.StreamEvent, 1)
+		toolCallEvents <- provider.Response[messages.ToolCallMessage]{
+			RunID:  runID,
+			TurnID: turnID,
+			Response: messages.ToolCallMessage{
+				ToolCalls: []messages.ToolCallData{
+					{
+						ID:        "tool1",
+						Name:      "marshaler_tool",
+						Arguments: "{}",
+					},
+				},
+			},
+		}
+		close(toolCallEvents)
+
+		prov.EXPECT().ChatCompletion(mock.Anything, mock.MatchedBy(func(p provider.CompletionParams) bool {
+			return p.RunID == runID
+		})).Return(toolCallEvents, nil)
+
+		// Setup topic expectations
+		mockTopic := mocks.NewTopic(t)
+		env.broker.EXPECT().Topic(mock.Anything, runID.String()).Return(mockTopic)
+
+		mockTopic.EXPECT().Publish(mock.Anything, mock.MatchedBy(func(msg interface{}) bool {
+			evt, ok := msg.(events.Event)
+			if !ok {
+				return false
+			}
+			resp, ok := evt.(events.Response[messages.ToolCallMessage])
+			return ok && resp.TurnID == turnID
+		})).Return(nil)
+
+		env.env.ExecuteWorkflow(env.temporal.Run, RemoteRunCommand{
+			ID: runID,
+			Agent: RemoteAgent{
+				Name:  "test_agent",
+				Model: "test_model",
+			},
+			MaxTurns: 10,
+		})
+
+		require.True(t, env.env.IsWorkflowCompleted())
+		require.Error(t, env.env.GetWorkflowError())
+		assert.Contains(t, env.env.GetWorkflowError().Error(), "intentional marshal error")
+	})
+}
+
+func TestTemporalToolCallsWithContextPropagation(t *testing.T) {
+	t.Run("basic propagation", func(t *testing.T) {
+		env := setupTestEnvironment(t)
+
+		// Register workflow and activities
+		env.env.RegisterWorkflow(env.temporal.Run)
+		env.env.RegisterWorkflow(env.temporal.RunChildWorkflow)
+		env.env.RegisterActivity(env.temporal.RunCompletion)
+		env.env.RegisterActivity(env.temporal.CallTool)
+
+		agent := mocks.NewAgent(t)
+		prov := mocks.NewProvider(t)
+		model := mocks.NewModel(t)
+
+		runID := uuidx.New()
+		turnID := uuidx.New()
+
+		// Register mock agent in the global registry
+		agent.EXPECT().Name().Return("test_agent")
+		agent.EXPECT().Tools().Return([]tool.Definition{
+			{
+				Name: "context_tool1",
+				Function: func() types.ContextVars {
+					return types.ContextVars{
+						"key1": "value1",
+						"key2": "value2",
+					}
+				},
+			},
+			{
+				Name: "context_tool2",
+				Parameters: map[string]string{
+					"param0": "cv",
+				},
+				Function: func(cv types.ContextVars) string {
+					return fmt.Sprintf("got values: %v, %v", cv["key1"], cv["key2"])
+				},
+			},
+		})
+		buboagent.Add(agent)
+
+		// Set up and register mock model
+		model.EXPECT().Name().Return("test_model")
+		model.EXPECT().Provider().Return(prov)
+		models.Add(model)
+
+		// Clean up registries after test
+		t.Cleanup(func() {
+			buboagent.Del("test_agent")
+			models.Del("test_model")
+		})
+
+		// Setup provider expectations for tool calls
+		toolCallEvents := make(chan provider.StreamEvent, 1)
+		toolCallEvents <- provider.Response[messages.ToolCallMessage]{
+			RunID:  runID,
+			TurnID: turnID,
+			Response: messages.ToolCallMessage{
+				ToolCalls: []messages.ToolCallData{
+					{
+						ID:        "tool1",
+						Name:      "context_tool1",
+						Arguments: "{}",
+					},
+					{
+						ID:        "tool2",
+						Name:      "context_tool2",
+						Arguments: `{"cv": {}}`,
+					},
+				},
+			},
+		}
+		close(toolCallEvents)
+
+		// Setup provider expectations for final response
+		finalEvents := make(chan provider.StreamEvent, 1)
+		finalEvents <- provider.Response[messages.AssistantMessage]{
+			RunID:  runID,
+			TurnID: turnID,
+			Response: messages.AssistantMessage{
+				Content: messages.AssistantContentOrParts{
+					Content: "final response",
+				},
+			},
+		}
+		close(finalEvents)
+
+		prov.EXPECT().ChatCompletion(mock.Anything, mock.MatchedBy(func(p provider.CompletionParams) bool {
+			return p.RunID == runID
+		})).Return(toolCallEvents, nil).Once()
+
+		prov.EXPECT().ChatCompletion(mock.Anything, mock.MatchedBy(func(p provider.CompletionParams) bool {
+			return p.RunID == runID
+		})).Return(finalEvents, nil).Once()
+
+		// Setup topic expectations
+		mockTopic := mocks.NewTopic(t)
+		env.broker.EXPECT().Topic(mock.Anything, runID.String()).Return(mockTopic).Times(4)
+
+		var toolResponses []string
+		mockTopic.EXPECT().Publish(mock.Anything, mock.MatchedBy(func(msg interface{}) bool {
+			evt, ok := msg.(events.Event)
+			if !ok {
+				return false
+			}
+			if resp, ok := evt.(events.Request[messages.ToolResponse]); ok {
+				toolResponses = append(toolResponses, resp.Message.Content)
+			}
+			return true
+		})).Return(nil).Times(4)
+
+		env.env.ExecuteWorkflow(env.temporal.Run, RemoteRunCommand{
+			ID: runID,
+			Agent: RemoteAgent{
+				Name:  "test_agent",
+				Model: "test_model",
+			},
+			MaxTurns: 10,
+		})
+
+		require.True(t, env.env.IsWorkflowCompleted())
+		require.NoError(t, env.env.GetWorkflowError())
+		assert.Contains(t, toolResponses[1], "got values: value1, value2", "Context variables should propagate between tool calls")
+	})
+
+	t.Run("chained updates", func(t *testing.T) {
+		env := setupTestEnvironment(t)
+
+		// Register workflow and activities
+		env.env.RegisterWorkflow(env.temporal.Run)
+		env.env.RegisterWorkflow(env.temporal.RunChildWorkflow)
+		env.env.RegisterActivity(env.temporal.RunCompletion)
+		env.env.RegisterActivity(env.temporal.CallTool)
+
+		agent := mocks.NewAgent(t)
+		prov := mocks.NewProvider(t)
+		model := mocks.NewModel(t)
+
+		runID := uuidx.New()
+		turnID := uuidx.New()
+
+		// Register mock agent with tools that modify context
+		agent.EXPECT().Name().Return("test_agent")
+		agent.EXPECT().Tools().Return([]tool.Definition{
+			{
+				Name: "init_context",
+				Function: func() types.ContextVars {
+					return types.ContextVars{"counter": float64(1)}
+				},
+			},
+			{
+				Name: "increment_counter",
+				Parameters: map[string]string{
+					"param0": "cv",
+				},
+				Function: func(cv types.ContextVars) types.ContextVars {
+					if cv == nil {
+						cv = types.ContextVars{}
+					}
+					counter := cv["counter"].(float64)
+					cv["counter"] = counter + 1
+					return cv
+				},
+			},
+			{
+				Name: "get_counter",
+				Parameters: map[string]string{
+					"param0": "cv",
+				},
+				Function: func(cv types.ContextVars) string {
+					return fmt.Sprintf("counter value: %v", cv["counter"])
+				},
+			},
+		})
+		buboagent.Add(agent)
+
+		// Set up and register mock model
+		model.EXPECT().Name().Return("test_model")
+		model.EXPECT().Provider().Return(prov)
+		models.Add(model)
+
+		// Clean up registries after test
+		t.Cleanup(func() {
+			buboagent.Del("test_agent")
+			models.Del("test_model")
+		})
+
+		// Setup provider expectations for tool calls
+		toolCallEvents := make(chan provider.StreamEvent, 1)
+		toolCallEvents <- provider.Response[messages.ToolCallMessage]{
+			RunID:  runID,
+			TurnID: turnID,
+			Response: messages.ToolCallMessage{
+				ToolCalls: []messages.ToolCallData{
+					{
+						ID:        "tool1",
+						Name:      "init_context",
+						Arguments: "{}",
+					},
+					{
+						ID:        "tool2",
+						Name:      "increment_counter",
+						Arguments: `{"cv": {}}`,
+					},
+					{
+						ID:        "tool3",
+						Name:      "get_counter",
+						Arguments: `{"cv": {}}`,
+					},
+				},
+			},
+		}
+		close(toolCallEvents)
+
+		// Setup provider expectations for final response
+		finalEvents := make(chan provider.StreamEvent, 1)
+		finalEvents <- provider.Response[messages.AssistantMessage]{
+			RunID:  runID,
+			TurnID: turnID,
+			Response: messages.AssistantMessage{
+				Content: messages.AssistantContentOrParts{
+					Content: "final response",
+				},
+			},
+		}
+		close(finalEvents)
+
+		prov.EXPECT().ChatCompletion(mock.Anything, mock.MatchedBy(func(p provider.CompletionParams) bool {
+			return p.RunID == runID
+		})).Return(toolCallEvents, nil).Once()
+
+		prov.EXPECT().ChatCompletion(mock.Anything, mock.MatchedBy(func(p provider.CompletionParams) bool {
+			return p.RunID == runID
+		})).Return(finalEvents, nil).Once()
+
+		// Setup topic expectations
+		mockTopic := mocks.NewTopic(t)
+		env.broker.EXPECT().Topic(mock.Anything, runID.String()).Return(mockTopic).Times(5)
+
+		var toolResponses []string
+		mockTopic.EXPECT().Publish(mock.Anything, mock.MatchedBy(func(msg interface{}) bool {
+			evt, ok := msg.(events.Event)
+			if !ok {
+				return false
+			}
+			if resp, ok := evt.(events.Request[messages.ToolResponse]); ok {
+				toolResponses = append(toolResponses, resp.Message.Content)
+			}
+			return true
+		})).Return(nil).Times(5)
+
+		env.env.ExecuteWorkflow(env.temporal.Run, RemoteRunCommand{
+			ID: runID,
+			Agent: RemoteAgent{
+				Name:  "test_agent",
+				Model: "test_model",
+			},
+			MaxTurns: 10,
+		})
+
+		require.True(t, env.env.IsWorkflowCompleted())
+		require.NoError(t, env.env.GetWorkflowError())
+		assert.Contains(t, toolResponses[2], "counter value: 2", "Context variables should update through chain of tools")
+	})
+}
+
 func TestTemporalToolCalls(t *testing.T) {
 	t.Run("sequential tool calls", func(t *testing.T) {
 		env := setupTestEnvironment(t)
@@ -738,88 +1344,6 @@ func TestTemporalToolCalls(t *testing.T) {
 		require.NoError(t, env.env.GetWorkflowError())
 		require.NoError(t, env.env.GetWorkflowResult(&result))
 		assert.Equal(t, "final result with tools: tool1 result: input1, tool2 result: input2", result)
-	})
-
-	t.Run("invalid tool call", func(t *testing.T) {
-		env := setupTestEnvironment(t)
-
-		// Register workflow and activities
-		env.env.RegisterWorkflow(env.temporal.Run)
-		env.env.RegisterWorkflow(env.temporal.RunChildWorkflow)
-		env.env.RegisterActivity(env.temporal.RunCompletion)
-		env.env.RegisterActivity(env.temporal.CallTool)
-
-		agent := mocks.NewAgent(t)
-		prov := mocks.NewProvider(t)
-		model := mocks.NewModel(t)
-
-		runID := uuidx.New()
-		turnID := uuidx.New()
-
-		// Register mock agent in the global registry
-		agent.EXPECT().Name().Return("test_agent")
-		agent.EXPECT().Tools().Return([]tool.Definition{}).Times(3) // Called once per attempt
-		buboagent.Add(agent)
-
-		// Set up and register mock model
-		model.EXPECT().Name().Return("test_model")
-		model.EXPECT().Provider().Return(prov)
-		models.Add(model)
-
-		// Clean up registries after test
-		t.Cleanup(func() {
-			buboagent.Del("test_agent")
-			models.Del("test_model")
-		})
-
-		// Setup provider expectations for invalid tool call
-		toolCallEvents := make(chan provider.StreamEvent, 1)
-		toolCallEvents <- provider.Response[messages.ToolCallMessage]{
-			RunID:  runID,
-			TurnID: turnID,
-			Response: messages.ToolCallMessage{
-				ToolCalls: []messages.ToolCallData{
-					{
-						ID:        "tool1",
-						Name:      "nonexistent_tool",
-						Arguments: "test input",
-					},
-				},
-			},
-		}
-		close(toolCallEvents)
-
-		prov.EXPECT().ChatCompletion(mock.Anything, mock.MatchedBy(func(p provider.CompletionParams) bool {
-			return p.RunID == runID
-		})).Return(toolCallEvents, nil)
-
-		// Setup topic expectations
-		mockTopic := mocks.NewTopic(t)
-		env.broker.EXPECT().Topic(mock.Anything, runID.String()).Return(mockTopic)
-
-		// Expect tool call response
-		mockTopic.EXPECT().Publish(mock.Anything, mock.MatchedBy(func(msg interface{}) bool {
-			evt, ok := msg.(events.Event)
-			if !ok {
-				return false
-			}
-			resp, ok := evt.(events.Response[messages.ToolCallMessage])
-			return ok && resp.TurnID == turnID
-		})).Return(nil)
-
-		env.env.ExecuteWorkflow(env.temporal.Run, RemoteRunCommand{
-			ID: runID,
-			Agent: RemoteAgent{
-				Name:              "test_agent",
-				Model:             "test_model",
-				ParallelToolCalls: false,
-			},
-			MaxTurns: 10,
-		})
-
-		require.True(t, env.env.IsWorkflowCompleted())
-		require.Error(t, env.env.GetWorkflowError())
-		assert.Contains(t, env.env.GetWorkflowError().Error(), "activity error (type: CallTool")
 	})
 }
 

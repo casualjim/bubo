@@ -238,6 +238,11 @@ func (t *Temporal) Run(ctx workflow.Context, cmd RemoteRunCommand) (string, erro
 					ToolCall: call,
 					CtxVars:  ctxVars,
 				})
+
+				// Update context variables from tool result
+				if toolResult.CtxVars != nil {
+					maps.Copy(ctxVars, toolResult.CtxVars)
+				}
 				if err != nil {
 					return "", err
 				}
@@ -329,6 +334,7 @@ type remoteToolCallParams struct {
 type remoteToolCallResult struct {
 	Message *messages.Message[messages.ToolResponse] `json:"message,omitempty"`
 	Agent   *RemoteAgent                             `json:"agent,omitempty"`
+	CtxVars types.ContextVars                        `json:"context_variables,omitempty"`
 }
 
 func (t *Temporal) runToolCallActivity(ctx workflow.Context, toolCall remoteToolCallParams) (remoteToolCallResult, error) {
@@ -527,9 +533,20 @@ func (t *Temporal) CallTool(ctx context.Context, tc remoteToolCallParams) (remot
 	}
 
 	args := buildArgList(tc.ToolCall.Arguments, agentTool.Parameters)
-	result, err := callFunction(agentTool.Function, args, tc.CtxVars)
+	// Create a copy of context variables to avoid modifying the original
+	ctxVars := maps.Clone(tc.CtxVars)
+	if ctxVars == nil {
+		ctxVars = make(types.ContextVars)
+	}
+
+	result, err := callFunction(agentTool.Function, args, ctxVars)
 	if err != nil {
 		return remoteToolCallResult{}, err
+	}
+
+	// Update original context variables with any new values
+	if result.ContextVariables != nil {
+		maps.Copy(ctxVars, result.ContextVariables)
 	}
 
 	if result.Agent != nil {
@@ -540,6 +557,7 @@ func (t *Temporal) CallTool(ctx context.Context, tc remoteToolCallParams) (remot
 				Instructions:      result.Agent.Instructions(),
 				ParallelToolCalls: result.Agent.ParallelToolCalls(),
 			},
+			CtxVars: ctxVars,
 		}, nil
 	}
 
@@ -568,6 +586,7 @@ func (t *Temporal) CallTool(ctx context.Context, tc remoteToolCallParams) (remot
 
 	return remoteToolCallResult{
 		Message: &msg,
+		CtxVars: ctxVars,
 	}, nil
 }
 

@@ -28,7 +28,7 @@ type textMarshaler struct {
 
 func (t textMarshaler) MarshalText() ([]byte, error) {
 	if t.shouldError {
-		return nil, fmt.Errorf("marshal error")
+		return nil, fmt.Errorf("intentional marshal error")
 	}
 	return []byte("marshaled text"), nil
 }

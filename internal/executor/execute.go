@@ -36,7 +36,7 @@ func ToJSONSchema[T any]() *jsonschema.Schema {
 	return schema
 }
 
-func NewRunCommand(agent api.Owl, thread *shorttermmemory.Aggregator, hook events.Hook) (RunCommand, error) {
+func NewRunCommand(agent api.Agent, thread *shorttermmemory.Aggregator, hook events.Hook) (RunCommand, error) {
 	var err error
 	if agent == nil {
 		err = errors.Join(err, errors.New("agent is required"))
@@ -63,7 +63,7 @@ func NewRunCommand(agent api.Owl, thread *shorttermmemory.Aggregator, hook event
 
 type RunCommand struct {
 	id               uuid.UUID
-	Agent            api.Owl
+	Agent            api.Agent
 	Thread           *shorttermmemory.Aggregator
 	StructuredOutput *provider.StructuredOutput
 	Stream           bool
@@ -241,5 +241,5 @@ func (f *future[T]) Error(err error) {
 type Executor interface {
 	Run(context.Context, RunCommand, Promise) error
 	// Topic(context.Context, string) broker.Topic
-	handleToolCalls(ctx context.Context, params toolCallParams) (api.Owl, error)
+	handleToolCalls(ctx context.Context, params toolCallParams) (api.Agent, error)
 }

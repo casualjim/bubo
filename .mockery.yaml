@@ -1,0 +1,67 @@
+with-expecter: true
+issue-845-fix: True
+resolve-type-alias: False
+packages:
+  github.com/casualjim/bubo/api:
+    interfaces:
+      Agent:
+        config:
+          filename: "mock_agent.go"
+          dir: "internal/mocks"
+          outpkg: "mocks"
+      Model:
+        config:
+          filename: "mock_model.go"
+          dir: "internal/mocks"
+          outpkg: "mocks"
+  github.com/casualjim/bubo/events:
+    interfaces:
+      Hook:
+        config:
+          filename: "mock_hook.go"
+          dir: "internal/mocks"
+          outpkg: "mocks"
+  github.com/casualjim/bubo/provider:
+    interfaces:
+      Provider:
+        config:
+          filename: "mock_provider.go"
+          dir: "internal/mocks"
+          outpkg: "mocks"
+  github.com/casualjim/bubo/internal/broker:
+    interfaces:
+      Broker:
+        config:
+          filename: "mock_broker.go"
+          dir: "internal/mocks"
+          outpkg: "mocks"
+      Topic:
+        config:
+          filename: "mock_topic.go"
+          dir: "internal/mocks"
+          outpkg: "mocks"
+      Subscription:
+        config:
+          filename: "mock_subscription.go"
+          dir: "internal/mocks"
+          outpkg: "mocks"
+  go.temporal.io/sdk/client:
+    config:
+      issue-845-fix: True
+      resolve-type-alias: False
+    interfaces:
+      Client:
+        config:
+          filename: "mock_temporal_client.go"
+          dir: "internal/mocks"
+          outpkg: "mocks"
+      WorkflowRun:
+        config:
+          filename: "mock_workflow_run.go"
+          dir: "internal/mocks"
+          outpkg: "mocks"
+inpackage: false
+mockname: "{{.InterfaceName}}"
+filename: "mock_{{.InterfaceName}}.go"
+dir: "internal/mocks"
+outpkg: "mocks"

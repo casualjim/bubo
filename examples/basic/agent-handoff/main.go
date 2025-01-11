@@ -10,9 +10,9 @@ import (
 	_ "github.com/joho/godotenv/autoload"
 
 	"github.com/casualjim/bubo"
+	"github.com/casualjim/bubo/agent"
 	"github.com/casualjim/bubo/api"
 	"github.com/casualjim/bubo/examples/internal/msgfmt"
-	"github.com/casualjim/bubo/owl"
 	"github.com/casualjim/bubo/provider/openai"
 	"github.com/phsym/zeroslog"
 	"github.com/rs/zerolog"
@@ -29,23 +29,23 @@ func init() {
 }
 
 var (
-	englishOwl = owl.New(
-		owl.Name("English Owl"),
-		owl.Model(openai.GPT4oMini()),
-		owl.Instructions("You only speak English, so you only reply in english."),
-		owl.Tools(transferToSpanishAgentTool),
+	englishAgent = agent.New(
+		agent.Name("English Agent"),
+		agent.Model(openai.GPT4oMini()),
+		agent.Instructions("You only speak English, so you only reply in english."),
+		agent.Tools(transferToSpanishAgentTool),
 	)
-	spanishOwl = owl.New(
-		owl.Name("Spanish Owl"),
-		owl.Model(openai.GPT4oMini()),
-		owl.Instructions("You only speak Spanish, so you only reply in spanish."),
+	spanishAgent = agent.New(
+		agent.Name("Spanish Agent"),
+		agent.Model(openai.GPT4oMini()),
+		agent.Instructions("You only speak Spanish, so you only reply in spanish."),
 	)
 )
 
 // Transfer spanish speaking users immediately
 //
 // bubo:agentTool
-func transferToSpanishAgent() api.Owl { return spanishOwl }
+func transferToSpanishAgent() api.Agent { return spanishAgent }
 
 func main() {
 	slog.Info("running basic/function-calling example")
@@ -54,9 +54,9 @@ func main() {
 	hook, result := msgfmt.Console[string](ctx, os.Stdout)
 
 	p := bubo.New(
-		bubo.Owls(englishOwl),
+		bubo.Agents(englishAgent),
 		bubo.Steps(
-			bubo.Step(englishOwl.Name(), "Hola. ¿Como estás?"),
+			bubo.Step(englishAgent.Name(), "Hola. ¿Como estás?"),
 		),
 	)
 

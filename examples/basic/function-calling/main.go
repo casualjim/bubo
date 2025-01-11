@@ -11,8 +11,8 @@ import (
 	_ "github.com/joho/godotenv/autoload"
 
 	"github.com/casualjim/bubo"
+	"github.com/casualjim/bubo/agent"
 	"github.com/casualjim/bubo/examples/internal/msgfmt"
-	"github.com/casualjim/bubo/owl"
 	"github.com/casualjim/bubo/provider/openai"
 	"github.com/phsym/zeroslog"
 	"github.com/rs/zerolog"
@@ -35,11 +35,11 @@ func getWeather(location string, date string) (string, error) {
 	return `{"temp":67,"unit":"F"}`, nil
 }
 
-var weatherOwl = owl.New(
-	owl.Name("simple-weather-owl"),
-	owl.Model(openai.GPT4oMini()),
-	owl.Instructions("You are a helpful agent, always call the tool when you need to get the weather."),
-	owl.Tools(getWeatherTool),
+var weatherAgent = agent.New(
+	agent.Name("simple-weather-agent"),
+	agent.Model(openai.GPT4oMini()),
+	agent.Instructions("You are a helpful agent, always call the tool when you need to get the weather."),
+	agent.Tools(getWeatherTool),
 )
 
 func main() {
@@ -49,9 +49,9 @@ func main() {
 	hook, result := msgfmt.Console[string](ctx, os.Stdout)
 
 	p := bubo.New(
-		bubo.Owls(weatherOwl),
+		bubo.Agents(weatherAgent),
 		bubo.Steps(
-			bubo.Step(weatherOwl.Name(), "What's the weather in NYC?"),
+			bubo.Step(weatherAgent.Name(), "What's the weather in NYC?"),
 		),
 	)
 

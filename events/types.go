@@ -79,6 +79,107 @@ func FromStreamEvent(e provider.StreamEvent, sender string) Event {
 	}
 }
 
+func ToJSON(event Event) ([]byte, error) {
+	switch e := event.(type) {
+	case Delim:
+		return json.Marshal(e)
+	case Chunk[messages.AssistantMessage]:
+		return json.Marshal(e)
+	case Chunk[messages.ToolCallMessage]:
+		return json.Marshal(e)
+	case Request[messages.UserMessage]:
+		return json.Marshal(e)
+	case Request[messages.ToolResponse]:
+		return json.Marshal(e)
+	case Response[messages.AssistantMessage]:
+		return json.Marshal(e)
+	case Response[messages.ToolCallMessage]:
+		return json.Marshal(e)
+	case Error:
+		return json.Marshal(e)
+	default:
+		return nil, fmt.Errorf("unknown event type: %T", event)
+	}
+}
+
+func FromJSON(jsonData []byte) (Event, error) {
+	if !gjson.ValidBytes(jsonData) {
+		return nil, fmt.Errorf("invalid JSON: %s", jsonData)
+	}
+	jv := gjson.ParseBytes(jsonData)
+	et := jv.Get("type").String()
+	switch et {
+	case "delim":
+		var d Delim
+		if err := json.Unmarshal(jsonData, &d); err != nil {
+			return nil, err
+		}
+		return d, nil
+	case "chunk":
+		ct := jv.Get("chunk.type").String()
+		switch ct {
+		case "assistant":
+			var d Chunk[messages.AssistantMessage]
+			if err := json.Unmarshal(jsonData, &d); err != nil {
+				return nil, err
+			}
+			return d, nil
+		case "tool_call":
+			var d Chunk[messages.ToolCallMessage]
+			if err := json.Unmarshal(jsonData, &d); err != nil {
+				return nil, err
+			}
+			return d, nil
+		default:
+			return nil, fmt.Errorf("failed to parse event chunk type: %s", ct)
+		}
+	case "request":
+		ct := jv.Get("message.type").String()
+		switch ct {
+		case "user":
+			var d Request[messages.UserMessage]
+			if err := json.Unmarshal(jsonData, &d); err != nil {
+				return nil, err
+			}
+			return d, nil
+		case "tool_response":
+			var d Request[messages.ToolResponse]
+			if err := json.Unmarshal(jsonData, &d); err != nil {
+				return nil, err
+			}
+			return d, nil
+		default:
+			return nil, fmt.Errorf("failed to parse event request type: %s", ct)
+		}
+	case "response":
+		ct := jv.Get("response.type").String()
+		switch ct {
+		case "assistant":
+			var d Response[messages.AssistantMessage]
+			if err := json.Unmarshal(jsonData, &d); err != nil {
+				return nil, err
+			}
+			return d, nil
+		case "tool_call":
+			var d Response[messages.ToolCallMessage]
+			if err := json.Unmarshal(jsonData, &d); err != nil {
+				return nil, err
+			}
+			return d, nil
+		default:
+			return nil, fmt.Errorf("failed to parse event response type: %s", ct)
+		}
+	case "error":
+		var e Error
+		if err := json.Unmarshal(jsonData, &e); err != nil {
+			return nil, err
+		}
+		return e, nil
+	default:
+		return nil, fmt.Errorf("failed to parse event type: %s", et)
+	}
+}
+
 type Delim struct {
 	RunID  uuid.UUID `json:"run_id"`
 	TurnID uuid.UUID `json:"turn_id"`

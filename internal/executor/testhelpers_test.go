@@ -49,7 +49,7 @@ func (m *mockProvider) ChatCompletion(ctx context.Context, params provider.Compl
 // Mock Agent
 
 type mockAgent struct {
-	api.Owl
+	api.Agent
 	testName  string
 	testModel testModel
 	testTools []tool.Definition

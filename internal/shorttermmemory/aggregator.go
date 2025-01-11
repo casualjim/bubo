@@ -285,6 +285,9 @@ func (c *Checkpoint) Usage() Usage {
 func (c *Checkpoint) MergeInto(other *Aggregator) {
 	other.messages = append(other.messages, c.messages[c.initLen:]...)
 	other.usage.AddUsage(&c.usage)
+	if other.id == uuid.Nil {
+		other.id = c.id
+	}
 }
 
 func (c Checkpoint) MarshalJSON() ([]byte, error) {

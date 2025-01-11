@@ -3,7 +3,6 @@ package bubo
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"reflect"
 	"slices"
 	"sync"
@@ -21,44 +20,73 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-type ConversationStep struct {
-	owlName string
-	task    string
+type task interface {
+	task()
 }
 
-func Step(owlName string, task string) ConversationStep {
+type stringTask string
+
+func (s stringTask) task() {}
+
+type messageTask messages.Message[messages.UserMessage]
+
+func (m messageTask) task() {}
+
+type ConversationStep struct {
+	agentName string
+	task      task
+}
+
+func Step[T Task](agentName string, tsk T) ConversationStep {
+	var t task
+	switch xt := any(tsk).(type) {
+	case string:
+		t = stringTask(xt)
+	case messages.Message[messages.UserMessage]:
+		t = messageTask(xt)
+	default:
+		panic(fmt.Sprintf("invalid task type: %T", xt))
+	}
 	return ConversationStep{
-		owlName: owlName,
-		task:    task,
+		agentName: agentName,
+		task:      t,
 	}
 }
 
-type Parliament struct {
-	owls  *haxmap.Map[string, api.Owl]
-	steps []ConversationStep
+type Task interface {
+	~string | messages.Message[messages.UserMessage]
 }
 
-func Owls(owl api.Owl, extraOwls ...api.Owl) opts.Option[Parliament] {
-	return opts.Type[Parliament](func(o *Parliament) error {
-		o.owls.Set(owl.Name(), owl)
-		for elem := range slices.Values(extraOwls) {
-			o.owls.Set(elem.Name(), elem)
+type Knot struct {
+	name   string
+	agents *haxmap.Map[string, api.Agent]
+	steps  []ConversationStep
+}
+
+func Agents(agent api.Agent, extraAgents ...api.Agent) opts.Option[Knot] {
+	return opts.Type[Knot](func(o *Knot) error {
+		o.agents.Set(agent.Name(), agent)
+		for elem := range slices.Values(extraAgents) {
+			o.agents.Set(elem.Name(), elem)
 		}
 		return nil
 	})
 }
 
-func Steps(step ConversationStep, extraSteps ...ConversationStep) opts.Option[Parliament] {
-	return opts.Type[Parliament](func(o *Parliament) error {
+func Steps(step ConversationStep, extraSteps ...ConversationStep) opts.Option[Knot] {
+	return opts.Type[Knot](func(o *Knot) error {
 		o.steps = append(o.steps, step)
 		o.steps = append(o.steps, extraSteps...)
 		return nil
 	})
 }
 
-func New(options ...opts.Option[Parliament]) *Parliament {
-	p := &Parliament{
-		owls: haxmap.New[string, api.Owl](),
+var Name = opts.ForName[Knot, string]("name")
+
+func New(options ...opts.Option[Knot]) *Knot {
+	p := &Knot{
+		name:   "User",
+		agents: haxmap.New[string, api.Agent](),
 	}
 	if err := opts.Apply(p, options); err != nil {
 		panic(err)
@@ -91,8 +119,8 @@ type ExecutionContext struct {
 	maxTurns       int
 }
 
-func (e *ExecutionContext) createCommand(owl api.Owl, mem *shorttermmemory.Aggregator) (executor.RunCommand, error) {
-	cmd, err := executor.NewRunCommand(owl, mem, e.hook)
+func (e *ExecutionContext) createCommand(agent api.Agent, mem *shorttermmemory.Aggregator) (executor.RunCommand, error) {
+	cmd, err := executor.NewRunCommand(agent, mem, e.hook)
 	if err != nil {
 		return executor.RunCommand{}, err
 	}
@@ -203,7 +231,7 @@ func Local[T any](hook Hook[T], options ...opts.Option[ExecutionContext]) Execut
 	return execCtx
 }
 
-func (p *Parliament) Run(ctx context.Context, rc ExecutionContext) error {
+func (p *Knot) Run(ctx context.Context, rc ExecutionContext) error {
 	defer rc.onClose(ctx)
 
 	maxItems := len(p.steps) - 1
@@ -212,15 +240,13 @@ func (p *Parliament) Run(ctx context.Context, rc ExecutionContext) error {
 		var promise executor.Promise
 		var schema *provider.StructuredOutput
 		if i < maxItems {
-			slog.Debug("using noop promise, not the last step")
 			promise = noopPromise{}
 		} else {
-			slog.Debug("using input promise, last step")
 			promise = rc.promise
 			schema = rc.responseSchema
 		}
 
-		if err := p.runStep(ctx, step.owlName, step.task, ExecutionContext{
+		if err := p.runStep(ctx, step.agentName, step.task, ExecutionContext{
 			executor:       rc.executor,
 			hook:           rc.hook,
 			promise:        promise,
@@ -240,16 +266,27 @@ type noopPromise struct{}
 func (noopPromise) Complete(string) {}
 func (noopPromise) Error(error)     {}
 
-func (p *Parliament) runStep(ctx context.Context, owlName, prompt string, rc ExecutionContext) error {
-	owl, found := p.owls.Get(owlName)
+func (p *Knot) runStep(ctx context.Context, agentName string, prompt task, rc ExecutionContext) error {
+	agent, found := p.agents.Get(agentName)
 	if !found {
-		return fmt.Errorf("owl %s not found", owlName)
+		return fmt.Errorf("agent %s not found", agentName)
 	}
 
 	state := shorttermmemory.New()
 
-	state.AddUserPrompt(messages.New().UserPrompt(prompt))
-	cmd, err := rc.createCommand(owl, state)
+	var message messages.Message[messages.UserMessage]
+	switch tsk := prompt.(type) {
+	case stringTask:
+		message = messages.New().WithSender(p.name).UserPrompt(string(tsk))
+	case messageTask:
+		message = messages.Message[messages.UserMessage](tsk)
+	default:
+		return fmt.Errorf("unknown task type %T", tsk)
+	}
+	state.AddUserPrompt(message)
+	rc.hook.OnUserPrompt(ctx, message)
+
+	cmd, err := rc.createCommand(agent, state)
 	if err != nil {
 		return err
 	}

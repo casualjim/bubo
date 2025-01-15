@@ -23,6 +23,30 @@ jobs:
           go-version: "1.23.x"
           cache: true
 
+      - name: Install NATS (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/nats-io/nats-server/releases/download/v2.10.24/nats-server-v2.10.24-windows-amd64.zip" -OutFile "nats.zip"
+          Expand-Archive -Path "nats.zip" -DestinationPath "C:\nats"
+          sc.exe create nats-server binPath="C:\nats\nats-server-v2.10.24-windows-amd64\nats-server.exe --log C:\nats\nats-server.log"
+          sc.exe start nats-server
+          Get-Content C:\nats\nats-server.log
+
+      - name: Install NATS (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install nats-server
+          brew services start nats-server
+
+      - name: Install NATS (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          curl -L https://github.com/nats-io/nats-server/releases/download/v2.10.24/nats-server-v2.10.24-linux-amd64.tar.gz -o nats.tar.gz
+          tar xzf nats.tar.gz
+          sudo cp nats-server-v2.10.24-linux-amd64/nats-server /usr/local/bin/
+          nats-server &
+
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:

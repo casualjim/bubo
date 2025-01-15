@@ -11,8 +11,8 @@ import (
 	_ "github.com/joho/godotenv/autoload"
 
 	"github.com/casualjim/bubo"
+	"github.com/casualjim/bubo/agent"
 	"github.com/casualjim/bubo/examples/internal/msgfmt"
-	"github.com/casualjim/bubo/owl"
 	"github.com/casualjim/bubo/provider/openai"
 	"github.com/casualjim/bubo/types"
 	"github.com/phsym/zeroslog"
@@ -39,11 +39,11 @@ func printAccountDetails(ctx types.ContextVars) string {
 	return "Success"
 }
 
-var accountDetailsOwl = owl.New(
-	owl.Name("account-details"),
-	owl.Model(openai.GPT4oMini()),
-	owl.Instructions("You are a helpful agent. Greet the user by name ({{.name}})."),
-	owl.Tools(printAccountDetailsTool),
+var accountDetailsAgent = agent.New(
+	agent.Name("account-details"),
+	agent.Model(openai.GPT4oMini()),
+	agent.Instructions("You are a helpful agent. Greet the user by name ({{.name}})."),
+	agent.Tools(printAccountDetailsTool),
 )
 
 func main() {
@@ -55,10 +55,10 @@ func main() {
 	hook, result := msgfmt.Console[string](ctx, os.Stdout)
 
 	p := bubo.New(
-		bubo.Owls(accountDetailsOwl),
+		bubo.Agents(accountDetailsAgent),
 		bubo.Steps(
-			bubo.Step(accountDetailsOwl.Name(), "Hi!"),
-			bubo.Step(accountDetailsOwl.Name(), "Print my account details"),
+			bubo.Step(accountDetailsAgent.Name(), "Hi!"),
+			bubo.Step(accountDetailsAgent.Name(), "Print my account details"),
 		),
 	)
 

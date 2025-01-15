@@ -16,7 +16,7 @@ Bubo provides a robust foundation for building AI agents that can:
 
 ## 🏗 Project Structure
 
-- `api/` - Core API definitions and owl-related functionality
+- `api/` - Core API definitions and agent-related functionality
 - `events/` - Event system for hooks and message handling
 - `messages/` - Message types and content handling
 - `provider/` - LLM provider integrations (OpenAI, etc.)``
@@ -66,63 +66,78 @@ package main
 
 import (
   "context"
-  "fmt"
   "log/slog"
   "os"
+  "time"
 
-  "github.com/casualjim/bubo/events"
+  // Ensure API Key is loaded
+  _ "github.com/joho/godotenv/autoload"
+
+  "github.com/casualjim/bubo"
+  "github.com/casualjim/bubo/api"
   "github.com/casualjim/bubo/examples/internal/msgfmt"
-  pubsub "github.com/casualjim/bubo/internal/broker"
-  "github.com/casualjim/bubo/internal/executor"
-  "github.com/casualjim/bubo/internal/shorttermmemory"
-  "github.com/casualjim/bubo/messages"
-  "github.com/casualjim/bubo/owl"
+  "github.com/casualjim/bubo/agent"
   "github.com/casualjim/bubo/provider/openai"
-  "github.com/joho/godotenv"
 )
 
+var (
+  englishAgent = agent.New(
+    agent.Name("English Agent"),
+    agent.Model(openai.GPT4oMini()),
+    agent.Instructions("You only speak English, so you only reply in english."),
+    agent.Tools(transferToSpanishAgentTool),
+  )
+  spanishAgent = agent.New(
+    agent.Name("Spanish Agent"),
+    agent.Model(openai.GPT4oMini()),
+    agent.Instructions("You only speak Spanish, so you only reply in spanish."),
+  )
+)
+
+// Transfer spanish speaking users immediately
+//
+// bubo:agentTool
+func transferToSpanishAgent() api.Agent { return spanishAgent }
+
 func main() {
-  if err := godotenv.Load(); err != nil {
-    slog.Warn("failed to load .env file")
-  }
+  slog.Info("running basic/agent-handoff example")
   ctx := context.Background()
 
-  // Create an owl (agent)
-  agent := owl.New(
-    owl.Name("minimal-agent"), 
-    owl.Model(openai.GPT4oMini()), 
-    owl.Instructions("You are a helpful assistant"),
+  hook, result := msgfmt.Console[string](ctx, os.Stdout)
+
+  p := bubo.New(
+    bubo.Agents(englishAgent),
+    bubo.Steps(
+      bubo.Step(englishAgent.Name(), "Hola. ¿Como estás?"),
+    ),
   )
 
-  // Setup execution environment
-  exec := executor.NewLocal(pubsub.Local[string]())
-  memory := shorttermmemory.NewAggregator()
-  stream, hook := events.NewChannelHook[string]()
-
-  // Add initial message to memory
-  memory.AddUserPrompt(messages.New().WithSender("user").UserPrompt("Hello, world!"))
-
-  // Create and run command
-  cmd, err := executor.NewRunCommand(agent, memory, hook)
-  if err != nil {
-    slog.Error("failed to create command", "error", err)
+  if err := p.Run(ctx, bubo.Local(hook)); err != nil {
+    slog.Error("error running agent", "error", err)
+    return
   }
 
-  if err := exec.Run(ctx, cmd); err != nil {
-    slog.Error("failed to run command", "error", err)
-  }
-
-  // Format and display output
-  if err := msgfmt.ConsolePretty(ctx, os.Stdout, stream); err != nil {
-    slog.Error("failed to format output", "error", err)
-  }
+  <-result
 }
+
+```
+
+We include a code generation tool to convert the go function into an agent function:
+
+```sh
+go run github.com/casualjim/bubo/cmd/bubo-tool-gen@latest
 ```
 
 ## 📦 Installation
 
 ```bash
 go get github.com/casualjim/bubo
+```
+
+### Code generation
+
+```sh
+go install github.com/casualjim/bubo/cmd/bubo-tool-gen@latest
 ```
 
 ## 🛠 Requirements

@@ -420,6 +420,163 @@ func TestResponseJSON(t *testing.T) {
 	})
 }
 
+func TestEventSerialization(t *testing.T) {
+	runID := uuid.New()
+	turnID := uuid.New()
+	timestamp := strfmt.DateTime(time.Now().UTC().Truncate(time.Millisecond))
+	meta := gjson.Parse(`{"key":"value"}`)
+
+	t.Run("ToJSON", func(t *testing.T) {
+		tests := []struct {
+			name    string
+			event   Event
+			wantErr bool
+		}{
+			{
+				name: "Delim",
+				event: Delim{
+					RunID:  runID,
+					TurnID: turnID,
+					Delim:  "test",
+				},
+			},
+			{
+				name: "Chunk AssistantMessage",
+				event: Chunk[messages.AssistantMessage]{
+					RunID:     runID,
+					TurnID:    turnID,
+					Chunk:     messages.New().AssistantMessage("test").Payload,
+					Sender:    "test",
+					Timestamp: timestamp,
+					Meta:      meta,
+				},
+			},
+			{
+				name: "Chunk ToolCallMessage",
+				event: Chunk[messages.ToolCallMessage]{
+					RunID:     runID,
+					TurnID:    turnID,
+					Chunk:     messages.New().ToolCall([]messages.ToolCallData{{Name: "test", Arguments: "{}"}}).Payload,
+					Sender:    "test",
+					Timestamp: timestamp,
+					Meta:      meta,
+				},
+			},
+			{
+				name: "Request UserMessage",
+				event: Request[messages.UserMessage]{
+					RunID:     runID,
+					TurnID:    turnID,
+					Message:   messages.New().UserPrompt("test").Payload,
+					Sender:    "test",
+					Timestamp: timestamp,
+					Meta:      meta,
+				},
+			},
+			{
+				name: "Request ToolResponse",
+				event: Request[messages.ToolResponse]{
+					RunID:     runID,
+					TurnID:    turnID,
+					Message:   messages.New().ToolResponse("test12", "test", "{}").Payload,
+					Sender:    "test",
+					Timestamp: timestamp,
+					Meta:      meta,
+				},
+			},
+			{
+				name: "Response AssistantMessage",
+				event: Response[messages.AssistantMessage]{
+					RunID:     runID,
+					TurnID:    turnID,
+					Response:  messages.New().AssistantMessage("test").Payload,
+					Sender:    "test",
+					Timestamp: timestamp,
+					Meta:      meta,
+				},
+			},
+			{
+				name: "Response ToolCallMessage",
+				event: Response[messages.ToolCallMessage]{
+					RunID:     runID,
+					TurnID:    turnID,
+					Response:  messages.New().ToolCall([]messages.ToolCallData{{Name: "test", Arguments: "{}"}}).Payload,
+					Sender:    "test",
+					Timestamp: timestamp,
+					Meta:      meta,
+				},
+			},
+			{
+				name: "Error",
+				event: Error{
+					RunID:     runID,
+					TurnID:    turnID,
+					Err:       errors.New("test error"),
+					Sender:    "test",
+					Timestamp: timestamp,
+					Meta:      meta,
+				},
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				data, err := ToJSON(tt.event)
+				if tt.wantErr {
+					assert.Error(t, err)
+					return
+				}
+				require.NoError(t, err)
+				assert.NotNil(t, data)
+
+				// Verify we can unmarshal it back
+				event, err := FromJSON(data)
+				require.NoError(t, err)
+				assert.IsType(t, tt.event, event)
+			})
+		}
+	})
+
+	t.Run("FromJSON errors", func(t *testing.T) {
+		tests := []struct {
+			name  string
+			input string
+		}{
+			{
+				name:  "invalid json",
+				input: "invalid",
+			},
+			{
+				name:  "missing type",
+				input: `{"run_id": "` + runID.String() + `"}`,
+			},
+			{
+				name:  "unknown type",
+				input: `{"type": "unknown"}`,
+			},
+			{
+				name:  "invalid chunk type",
+				input: `{"type": "chunk", "chunk": {"type": "unknown"}}`,
+			},
+			{
+				name:  "invalid request type",
+				input: `{"type": "request", "message": {"type": "unknown"}}`,
+			},
+			{
+				name:  "invalid response type",
+				input: `{"type": "response", "message": {"type": "unknown"}}`,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				_, err := FromJSON([]byte(tt.input))
+				assert.Error(t, err)
+			})
+		}
+	})
+}
+
 func TestErrorJSON(t *testing.T) {
 	runID := uuid.New()
 	turnID := uuid.New()

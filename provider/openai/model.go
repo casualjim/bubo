@@ -3,14 +3,12 @@ package openai
 import (
 	"sync"
 
-	"github.com/alphadose/haxmap"
 	"github.com/casualjim/bubo/api"
 	"github.com/casualjim/bubo/provider"
+	"github.com/casualjim/bubo/provider/models"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 )
-
-var modelRegistry = haxmap.New[string, api.Model]()
 
 func GPT4oMini(opts ...option.RequestOption) api.Model {
 	return Model(openai.ChatModelGPT4oMini, opts...)
@@ -29,13 +27,12 @@ func O1(opts ...option.RequestOption) api.Model {
 }
 
 func Model(name string, opts ...option.RequestOption) api.Model {
-	m, _ := modelRegistry.GetOrCompute(name, func() api.Model {
+	return models.GetOrAdd(name, func() api.Model {
 		return &model{
 			name: name,
 			opts: opts,
 		}
 	})
-	return m
 }
 
 var _ api.Model = (*model)(nil)

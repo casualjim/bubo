@@ -105,6 +105,7 @@
             pkg-config
             git
             go
+            go-mockery
             golint
             gofumpt
             golangci-lint
@@ -116,6 +117,7 @@
             gotools
             govulncheck
             just
+            temporal
             # self.packages.${system}.bubo-tool-gen
           ];
 

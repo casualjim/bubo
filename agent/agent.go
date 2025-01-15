@@ -1,4 +1,4 @@
-package owl
+package agent
 
 import (
 	"strings"
@@ -11,12 +11,12 @@ import (
 	"github.com/fogfish/opts"
 )
 
-var _ api.Owl = (*defaultOwl)(nil)
+var _ api.Agent = (*defaultAgent)(nil)
 
-// defaultOwl represents an agent with specific attributes and capabilities.
+// defaultAgent represents an agent with specific attributes and capabilities.
 // It includes the agent's name, model, instructions, function definitions, tool choice,
 // and whether it supports parallel tool calls.
-type defaultOwl struct {
+type defaultAgent struct {
 	name              string
 	model             api.Model
 	instructions      string
@@ -25,27 +25,31 @@ type defaultOwl struct {
 }
 
 // Name returns the agent's name.
-func (a *defaultOwl) Name() string {
+func (a *defaultAgent) Name() string {
 	return a.name
 }
 
 // Model returns the agent's model.
-func (a *defaultOwl) Model() api.Model {
+func (a *defaultAgent) Model() api.Model {
 	return a.model
 }
 
 // Tools returns the agent's function definitions.
-func (a *defaultOwl) Tools() []tool.Definition {
+func (a *defaultAgent) Tools() []tool.Definition {
 	return a.tools
 }
 
+func (a *defaultAgent) Instructions() string {
+	return a.instructions
+}
+
 // ParallelToolCalls returns whether the agent supports parallel tool calls.
-func (a *defaultOwl) ParallelToolCalls() bool {
+func (a *defaultAgent) ParallelToolCalls() bool {
 	return a.parallelToolCalls
 }
 
 // RenderInstructions renders the agent's instructions with the provided context variables.
-func (a *defaultOwl) RenderInstructions(cv types.ContextVars) (string, error) {
+func (a *defaultAgent) RenderInstructions(cv types.ContextVars) (string, error) {
 	if !strings.Contains(a.instructions, "{{") {
 		return a.instructions, nil
 	}
@@ -67,28 +71,28 @@ func renderTemplate(name, templateStr string, cv types.ContextVars) (string, err
 }
 
 var (
-	Name              = opts.ForName[defaultOwl, string]("name")
-	Model             = opts.ForName[defaultOwl, api.Model]("model")
-	Instructions      = opts.ForName[defaultOwl, string]("instructions")
-	ParallelToolCalls = opts.ForName[defaultOwl, bool]("parallelToolCalls")
+	Name              = opts.ForName[defaultAgent, string]("name")
+	Model             = opts.ForName[defaultAgent, api.Model]("model")
+	Instructions      = opts.ForName[defaultAgent, string]("instructions")
+	ParallelToolCalls = opts.ForName[defaultAgent, bool]("parallelToolCalls")
 )
 
-func Tools(tool tool.Definition, extraTools ...tool.Definition) opts.Option[defaultOwl] {
-	return opts.Type[defaultOwl](func(o *defaultOwl) error {
+func Tools(tool tool.Definition, extraTools ...tool.Definition) opts.Option[defaultAgent] {
+	return opts.Type[defaultAgent](func(o *defaultAgent) error {
 		o.tools = append(o.tools, tool)
 		o.tools = append(o.tools, extraTools...)
 		return nil
 	})
 }
 
-// New creates a new DefaultOwl with the provided parameters.
-func New(options ...opts.Option[defaultOwl]) api.Owl {
-	owl := &defaultOwl{
+// New creates a new DefaultAgent with the provided parameters.
+func New(options ...opts.Option[defaultAgent]) api.Agent {
+	agent := &defaultAgent{
 		model:             openai.GPT4oMini(),
 		parallelToolCalls: true,
 	}
-	if err := opts.Apply(owl, options); err != nil {
+	if err := opts.Apply(agent, options); err != nil {
 		panic(err)
 	}
-	return owl
+	return agent
 }

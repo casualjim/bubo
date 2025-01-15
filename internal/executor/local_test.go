@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/casualjim/bubo/api"
+	"github.com/casualjim/bubo/internal/mocks"
 	"github.com/casualjim/bubo/internal/shorttermmemory"
 	"github.com/casualjim/bubo/messages"
 	"github.com/casualjim/bubo/pkg/uuidx"
@@ -17,6 +18,7 @@ import (
 	"github.com/casualjim/bubo/types"
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -26,7 +28,7 @@ type textMarshaler struct {
 
 func (t textMarshaler) MarshalText() ([]byte, error) {
 	if t.shouldError {
-		return nil, fmt.Errorf("marshal error")
+		return nil, fmt.Errorf("intentional marshal error")
 	}
 	return []byte("marshaled text"), nil
 }
@@ -172,13 +174,18 @@ func TestHandleToolCalls(t *testing.T) {
 		l := NewLocal()
 		agent := newTestAgent()
 
+		hook := mocks.NewHook(t)
+		hook.EXPECT().OnToolCallResponse(mock.Anything, mock.MatchedBy(func(msg messages.Message[messages.ToolResponse]) bool {
+			return true
+		}))
+
 		runID := uuidx.New()
 		params := toolCallParams{
 			runID:       runID,
 			agent:       agent,
 			contextVars: types.ContextVars{},
 			mem:         shorttermmemory.New(),
-			hook:        &mockHook{},
+			hook:        hook,
 			toolCalls: messages.ToolCallMessage{
 				ToolCalls: []messages.ToolCallData{
 					{
@@ -214,7 +221,7 @@ func TestHandleToolCalls(t *testing.T) {
 				},
 				{
 					Name: "agent_tool",
-					Function: func() api.Owl {
+					Function: func() api.Agent {
 						executionOrder = append(executionOrder, "agent_tool")
 						return nextTestAgent
 					},
@@ -222,12 +229,14 @@ func TestHandleToolCalls(t *testing.T) {
 			},
 		}
 
+		hook := mocks.NewHook(t)
+
 		runID := uuidx.New()
 		params := toolCallParams{
 			runID:       runID,
 			agent:       agent,
 			mem:         shorttermmemory.New(),
-			hook:        &mockHook{},
+			hook:        hook,
 			contextVars: make(types.ContextVars),
 			toolCalls: messages.ToolCallMessage{
 				ToolCalls: []messages.ToolCallData{
@@ -358,11 +367,11 @@ func TestHandleToolCallsWithContextVars(t *testing.T) {
 
 	// Create a channel to capture the tool response
 	responseReceived := make(chan string, 10)
-	hook := &mockHook{
-		onToolCallResponse: func(ctx context.Context, msg messages.Message[messages.ToolResponse]) {
-			responseReceived <- msg.Payload.Content
-		},
-	}
+	hook := mocks.NewHook(t)
+	hook.EXPECT().OnToolCallResponse(mock.Anything, mock.MatchedBy(func(msg messages.Message[messages.ToolResponse]) bool {
+		responseReceived <- msg.Payload.Content
+		return true
+	}))
 
 	runID := uuidx.New()
 	params := toolCallParams{
@@ -404,7 +413,7 @@ func TestHandleToolCallsWithAgentReturn(t *testing.T) {
 	agent.testTools = []tool.Definition{
 		{
 			Name: "agent_tool",
-			Function: func() api.Owl {
+			Function: func() api.Agent {
 				return nextTestAgent
 			},
 		},
@@ -552,14 +561,14 @@ func TestHandleToolCallsWithMixedTools(t *testing.T) {
 		testTools: []tool.Definition{
 			{
 				Name: "b_agent_tool", // Deliberately named to test order preservation
-				Function: func() api.Owl {
+				Function: func() api.Agent {
 					executionOrder = append(executionOrder, "b_agent_tool")
 					return newTestAgent()
 				},
 			},
 			{
 				Name: "a_agent_tool", // Deliberately named to test order preservation
-				Function: func() api.Owl {
+				Function: func() api.Agent {
 					executionOrder = append(executionOrder, "a_agent_tool")
 					return newTestAgent()
 				},
@@ -1080,7 +1089,7 @@ func TestRunWithStreamingAgentHandoff(t *testing.T) {
 		testTools: []tool.Definition{
 			{
 				Name: "agent_tool",
-				Function: func() api.Owl {
+				Function: func() api.Agent {
 					return nextAgent
 				},
 			},
@@ -1177,14 +1186,21 @@ func TestRunWithStreamingToolCalls(t *testing.T) {
 
 	var toolCallChunks []messages.ToolCallMessage
 	var toolCallResponses []messages.ToolCallMessage
-	hook := &mockHook{
-		onToolCallChunk: func(ctx context.Context, msg messages.Message[messages.ToolCallMessage]) {
-			toolCallChunks = append(toolCallChunks, msg.Payload)
-		},
-		onToolCallMessage: func(ctx context.Context, msg messages.Message[messages.ToolCallMessage]) {
-			toolCallResponses = append(toolCallResponses, msg.Payload)
-		},
-	}
+	hook := mocks.NewHook(t)
+	hook.EXPECT().OnToolCallChunk(mock.Anything, mock.MatchedBy(func(msg messages.Message[messages.ToolCallMessage]) bool {
+		toolCallChunks = append(toolCallChunks, msg.Payload)
+		return true
+	})).Maybe()
+	hook.EXPECT().OnToolCallMessage(mock.Anything, mock.MatchedBy(func(msg messages.Message[messages.ToolCallMessage]) bool {
+		toolCallResponses = append(toolCallResponses, msg.Payload)
+		return true
+	}))
+	hook.EXPECT().OnToolCallResponse(mock.Anything, mock.MatchedBy(func(msg messages.Message[messages.ToolResponse]) bool {
+		return true
+	}))
+	hook.EXPECT().OnAssistantMessage(mock.Anything, mock.MatchedBy(func(msg messages.Message[messages.AssistantMessage]) bool {
+		return true
+	}))
 
 	cmd, err := NewRunCommand(agent, thread, hook)
 	require.NoError(t, err)
@@ -1233,14 +1249,15 @@ func TestRunWithStreaming(t *testing.T) {
 	thread := shorttermmemory.New()
 
 	var streamingResponses []string
-	hook := &mockHook{
-		onAssistantChunk: func(ctx context.Context, msg messages.Message[messages.AssistantMessage]) {
-			streamingResponses = append(streamingResponses, msg.Payload.Content.Content)
-		},
-		onAssistantMessage: func(ctx context.Context, msg messages.Message[messages.AssistantMessage]) {
-			streamingResponses = append(streamingResponses, msg.Payload.Content.Content)
-		},
-	}
+	hook := mocks.NewHook(t)
+	hook.EXPECT().OnAssistantChunk(mock.Anything, mock.MatchedBy(func(msg messages.Message[messages.AssistantMessage]) bool {
+		streamingResponses = append(streamingResponses, msg.Payload.Content.Content)
+		return true
+	})).Maybe()
+	hook.EXPECT().OnAssistantMessage(mock.Anything, mock.MatchedBy(func(msg messages.Message[messages.AssistantMessage]) bool {
+		streamingResponses = append(streamingResponses, msg.Payload.Content.Content)
+		return true
+	}))
 
 	cmd, err := NewRunCommand(agent, thread, hook)
 	require.NoError(t, err)
@@ -1332,7 +1349,7 @@ func TestRunWithAgentChain(t *testing.T) {
 			},
 			{
 				Name: "transfer_to_agent3",
-				Function: func() api.Owl {
+				Function: func() api.Agent {
 					return agent3
 				},
 			},
@@ -1373,7 +1390,7 @@ func TestRunWithAgentChain(t *testing.T) {
 			},
 			{
 				Name: "transfer_to_agent2",
-				Function: func() api.Owl {
+				Function: func() api.Agent {
 					return agent2
 				},
 			},
@@ -1385,17 +1402,19 @@ func TestRunWithAgentChain(t *testing.T) {
 	var toolResponses []messages.Message[messages.ToolResponse]
 	var toolCallMessages []messages.Message[messages.ToolCallMessage]
 	var assistantMessages []messages.Message[messages.AssistantMessage]
-	hook := &mockHook{
-		onToolCallMessage: func(ctx context.Context, msg messages.Message[messages.ToolCallMessage]) {
-			toolCallMessages = append(toolCallMessages, msg)
-		},
-		onToolCallResponse: func(ctx context.Context, msg messages.Message[messages.ToolResponse]) {
-			toolResponses = append(toolResponses, msg)
-		},
-		onAssistantMessage: func(ctx context.Context, msg messages.Message[messages.AssistantMessage]) {
-			assistantMessages = append(assistantMessages, msg)
-		},
-	}
+	hook := mocks.NewHook(t)
+	hook.EXPECT().OnToolCallMessage(mock.Anything, mock.MatchedBy(func(msg messages.Message[messages.ToolCallMessage]) bool {
+		toolCallMessages = append(toolCallMessages, msg)
+		return true
+	})).Maybe()
+	hook.EXPECT().OnToolCallResponse(mock.Anything, mock.MatchedBy(func(msg messages.Message[messages.ToolResponse]) bool {
+		toolResponses = append(toolResponses, msg)
+		return true
+	})).Maybe()
+	hook.EXPECT().OnAssistantMessage(mock.Anything, mock.MatchedBy(func(msg messages.Message[messages.AssistantMessage]) bool {
+		assistantMessages = append(assistantMessages, msg)
+		return true
+	}))
 
 	cmd, err := NewRunCommand(agent1, thread, hook)
 	require.NoError(t, err)

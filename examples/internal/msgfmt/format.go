@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"slices"
 	"strings"
 
@@ -77,6 +78,17 @@ func printStreamingMessages[T any](ctx context.Context, w io.Writer, events <-ch
 					fmt.Fprintln(w)
 					content = ""
 				}
+			case buboevents.Request[messages.UserMessage]:
+				fmt.Fprint(w, color.GreenString(e.Sender)+": ")
+				out, _ := glam.Render(e.Message.Content.Content)
+				fmt.Fprintln(w, out)
+			case buboevents.Request[messages.ToolResponse]:
+				if e.Sender == "" {
+					fmt.Fprint(os.Stdout, color.YellowString("Tool")+": ")
+				} else {
+					fmt.Fprint(os.Stdout, color.YellowString(e.Sender)+": ")
+				}
+				fmt.Fprint(os.Stdout, e.Message.Content)
 			case buboevents.Chunk[messages.AssistantMessage]:
 				if e.Sender != "" {
 					lastSender = e.Sender

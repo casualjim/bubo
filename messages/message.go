@@ -75,6 +75,16 @@ func New() messageBuilder {
 	}
 }
 
+func (b messageBuilder) WithRunID(runID uuid.UUID) messageBuilder {
+	b.runID = runID
+	return b
+}
+
+func (b messageBuilder) WithTurnID(turnID uuid.UUID) messageBuilder {
+	b.turnID = turnID
+	return b
+}
+
 // WithSender sets the sender field in the messageBuilder and returns a new builder instance.
 // This method is part of the builder pattern and allows for method chaining.
 func (b messageBuilder) WithSender(sender string) messageBuilder {

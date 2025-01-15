@@ -42,8 +42,6 @@ func (e *continueError) Error() string {
 	return "continue"
 }
 
-type Temporal struct{}
-
 type Local struct{}
 
 func NewLocal() *Local {
@@ -68,7 +66,7 @@ func wrapErr(runID, turnID uuid.UUID, sender string, err error) (events.Error, b
 
 type toolCallParams struct {
 	runID       uuid.UUID
-	agent       api.Owl
+	agent       api.Agent
 	contextVars types.ContextVars
 	mem         *shorttermmemory.Aggregator
 	hook        events.Hook
@@ -91,14 +89,8 @@ func (l *Local) Run(ctx context.Context, command RunCommand, promise Promise) er
 		contextVars: contextVars,
 		promise:     promise,
 	})
-	if err != nil {
-		var breakErr *breakError
-		if errors.As(err, &breakErr) {
-			// Break error means successful completion
-			command.Thread.Join(thread)
-			return nil
-		}
-
+	var breakErr *breakError
+	if err != nil && !errors.As(err, &breakErr) {
 		return err
 	}
 
@@ -110,7 +102,7 @@ func (l *Local) Run(ctx context.Context, command RunCommand, promise Promise) er
 type reactorParams struct {
 	command     RunCommand
 	thread      *shorttermmemory.Aggregator
-	activeAgent api.Owl
+	activeAgent api.Agent
 	contextVars types.ContextVars
 	promise     Promise
 }
@@ -339,7 +331,7 @@ func (l *Local) handleToolCallResponse(ctx context.Context, event provider.Respo
 	return nil
 }
 
-func (l *Local) handleToolCalls(ctx context.Context, params toolCallParams) (api.Owl, error) {
+func (l *Local) handleToolCalls(ctx context.Context, params toolCallParams) (api.Agent, error) {
 	agentTools := make(map[string]tool.Definition, len(params.agent.Tools()))
 	for tool := range slices.Values(params.agent.Tools()) {
 		agentTools[tool.Name] = tool
@@ -360,7 +352,7 @@ func (l *Local) handleToolCalls(ctx context.Context, params toolCallParams) (api
 			}
 		}
 
-		if reflectx.ResultImplements[api.Owl](tool.Function) {
+		if reflectx.ResultImplements[api.Agent](tool.Function) {
 			agentTransfers = append(agentTransfers, call)
 		} else {
 			otherTools = append(otherTools, call)
@@ -428,7 +420,7 @@ func buildArgList(arguments string, parameters map[string]string) []reflect.Valu
 
 type toolResult struct {
 	Value            string
-	Agent            api.Owl
+	Agent            api.Agent
 	ContextVariables types.ContextVars
 }
 
@@ -462,7 +454,7 @@ func callFunction(fn any, args []reflect.Value, contextVars types.ContextVars) (
 	}
 
 	switch vtpe := res.Interface().(type) {
-	case api.Owl:
+	case api.Agent:
 		return toolResult{Value: fmt.Sprintf(`{"assistant":%q}`, vtpe.Name()), Agent: vtpe}, nil
 	case error:
 		return toolResult{}, vtpe

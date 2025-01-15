@@ -95,13 +95,12 @@ func (t *topic) newSubscription(ctx context.Context, hook events.Hook) *subscrip
 	sub := &subscription{
 		id:        id, // Use the same ID for both the subscription and map key
 		ctx:       ctx,
-		channel:   make(chan events.Event, 50), // Buffer size optimized for typical usage
+		channel:   make(chan events.Event, 50),
 		closeOnce: sync.Once{},
 		onClose:   func() { t.subscriptions.Del(id) },
-		hook:      hook,
 	}
 	t.subscriptions.Set(id, sub)
-	go sub.forwardToHook()
+	go forwardToHook(ctx, sub.channel, hook)
 	return sub
 }
 
@@ -111,7 +110,7 @@ type subscription struct {
 	channel   chan events.Event
 	closeOnce sync.Once
 	onClose   func()
-	hook      events.Hook
+	// hook      events.Hook
 }
 
 func (s *subscription) ID() string {
@@ -127,10 +126,10 @@ func (s *subscription) Unsubscribe() {
 	})
 }
 
-func (s *subscription) forwardToHook() {
+func forwardToHook(ctx context.Context, from chan events.Event, to events.Hook) {
 	for {
 		select {
-		case event, ok := <-s.channel:
+		case event, ok := <-from:
 			if !ok {
 				return
 			}
@@ -138,42 +137,42 @@ func (s *subscription) forwardToHook() {
 			case events.Delim:
 				// Delim events are used for stream control and don't need to be forwarded to hooks
 			case events.Request[messages.UserMessage]:
-				s.hook.OnUserPrompt(s.ctx, messages.Message[messages.UserMessage]{
+				to.OnUserPrompt(ctx, messages.Message[messages.UserMessage]{
 					Payload:   event.Message,
 					Sender:    event.Sender,
 					Timestamp: event.Timestamp,
 					Meta:      event.Meta,
 				})
 			case events.Chunk[messages.AssistantMessage]:
-				s.hook.OnAssistantChunk(s.ctx, messages.Message[messages.AssistantMessage]{
+				to.OnAssistantChunk(ctx, messages.Message[messages.AssistantMessage]{
 					Payload:   event.Chunk,
 					Sender:    event.Sender,
 					Timestamp: event.Timestamp,
 					Meta:      event.Meta,
 				})
 			case events.Chunk[messages.ToolCallMessage]:
-				s.hook.OnToolCallChunk(s.ctx, messages.Message[messages.ToolCallMessage]{
+				to.OnToolCallChunk(ctx, messages.Message[messages.ToolCallMessage]{
 					Payload:   event.Chunk,
 					Sender:    event.Sender,
 					Timestamp: event.Timestamp,
 					Meta:      event.Meta,
 				})
 			case events.Request[messages.ToolResponse]:
-				s.hook.OnToolCallResponse(s.ctx, messages.Message[messages.ToolResponse]{
+				to.OnToolCallResponse(ctx, messages.Message[messages.ToolResponse]{
 					Payload:   event.Message,
 					Sender:    event.Sender,
 					Timestamp: event.Timestamp,
 					Meta:      event.Meta,
 				})
 			case events.Response[messages.ToolCallMessage]:
-				s.hook.OnToolCallMessage(s.ctx, messages.Message[messages.ToolCallMessage]{
+				to.OnToolCallMessage(ctx, messages.Message[messages.ToolCallMessage]{
 					Payload:   event.Response,
 					Sender:    event.Sender,
 					Timestamp: event.Timestamp,
 					Meta:      event.Meta,
 				})
 			case events.Response[messages.AssistantMessage]:
-				s.hook.OnAssistantMessage(s.ctx, messages.Message[messages.AssistantMessage]{
+				to.OnAssistantMessage(ctx, messages.Message[messages.AssistantMessage]{
 					Payload:   event.Response,
 					Sender:    event.Sender,
 					Timestamp: event.Timestamp,
@@ -181,11 +180,11 @@ func (s *subscription) forwardToHook() {
 				})
 
 			case events.Error:
-				s.hook.OnError(s.ctx, event.Err)
+				to.OnError(ctx, event.Err)
 			default:
 				panic(fmt.Sprintf("unknown event type: %T", event))
 			}
-		case <-s.ctx.Done():
+		case <-ctx.Done():
 			return
 		}
 	}

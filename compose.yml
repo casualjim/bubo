@@ -1,0 +1,31 @@
+services:
+  nats:
+    image: nats:alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4222:4222"
+      - "127.0.0.1:6222:6222"
+      - "127.0.0.1:8222:8222"
+    volumes:
+      - ./testdata/nats:/etc/nats:ro # Mount the configuration directory
+      - jetstream-data:/data/jetstream # Mount the JetStream data directory
+    command: ["-c", "/etc/nats/nats-server.conf"]
+
+  surveyor:
+    image: natsio/nats-surveyor
+    restart: always
+    volumes:
+      - observations-data:/observations
+      - jetstream-data:/data/jetstream
+    command: |
+      -s nats://nats:4222 --accounts --observe /observations --jetstream /data/jetstream
+    labels:
+      org.label-schema.group: "nats-monitoring"
+    depends_on:
+      - nats
+
+volumes:
+  jetstream-data:
+    driver: local
+  observations-data:
+    driver: local

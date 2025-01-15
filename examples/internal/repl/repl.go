@@ -36,10 +36,10 @@ func init() {
 	}
 }
 
-func Run(ctx context.Context, startingOwl api.Owl) error {
+func Run(ctx context.Context, startingAgent api.Agent) error {
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Split(bufio.ScanLines)
-	agent := startingOwl
+	agent := startingAgent
 	history := shorttermmemory.New()
 
 	for {

@@ -5,7 +5,7 @@ import (
 	"github.com/casualjim/bubo/types"
 )
 
-// Owl represents the core interface for AI agents in the system. It defines the essential
+// Agent represents the core interface for AI agents in the system. It defines the essential
 // capabilities and configuration options that every agent must implement.
 //
 // Design decisions:
@@ -28,7 +28,7 @@ import (
 // The interface is designed to be implementation-agnostic, allowing different types
 // of agents (e.g., local models, API-based services) to provide these capabilities
 // while maintaining a consistent integration surface.
-type Owl interface {
+type Agent interface {
 	// Name returns the agent's unique identifier.
 	// This name should be consistent across sessions and is used for logging,
 	// debugging, and distinguishing between multiple agents in the system.
@@ -57,4 +57,6 @@ type Owl interface {
 	// Returns an error if the instructions cannot be rendered with the given context,
 	// for example if required variables are missing or template syntax is invalid.
 	RenderInstructions(types.ContextVars) (string, error)
+
+	Instructions() string
 }

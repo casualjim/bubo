@@ -1,3 +1,6 @@
+// Package bubo provides a framework for building conversational AI agents that can interact
+// in a structured manner. It supports multi-agent conversations, structured output,
+// and flexible execution contexts.
 package bubo
 
 import (
@@ -14,12 +17,17 @@ import (
 	"github.com/fogfish/opts"
 )
 
+// Knot represents a conversational workflow that coordinates multiple AI agents
+// through a series of predefined steps. It manages agent registration and execution
+// of conversation steps in sequence.
 type Knot struct {
-	name   string
-	agents *haxmap.Map[string, api.Agent]
-	steps  []ConversationStep
+	name   string                         // The name of the conversation initiator
+	agents *haxmap.Map[string, api.Agent] // Registry of available agents
+	steps  []ConversationStep             // Ordered sequence of conversation steps
 }
 
+// Agents creates an option to register one or more agents with the Knot.
+// It requires at least one agent and can accept additional agents as variadic arguments.
 func Agents(agent api.Agent, extraAgents ...api.Agent) opts.Option[Knot] {
 	return opts.Type[Knot](func(o *Knot) error {
 		o.agents.Set(agent.Name(), agent)
@@ -30,6 +38,8 @@ func Agents(agent api.Agent, extraAgents ...api.Agent) opts.Option[Knot] {
 	})
 }
 
+// Steps creates an option to add one or more conversation steps to the Knot.
+// Each step represents a single interaction in the conversation flow.
 func Steps(step ConversationStep, extraSteps ...ConversationStep) opts.Option[Knot] {
 	return opts.Type[Knot](func(o *Knot) error {
 		o.steps = append(o.steps, step)
@@ -38,8 +48,12 @@ func Steps(step ConversationStep, extraSteps ...ConversationStep) opts.Option[Kn
 	})
 }
 
+// Name is an option to set the name of the conversation initiator.
 var Name = opts.ForName[Knot, string]("name")
 
+// New creates a new Knot instance with the provided options.
+// It initializes a default name of "User" and an empty agent registry.
+// Options can be used to customize the name, add agents, and define conversation steps.
 func New(options ...opts.Option[Knot]) *Knot {
 	p := &Knot{
 		name:   "User",
@@ -51,30 +65,9 @@ func New(options ...opts.Option[Knot]) *Knot {
 	return p
 }
 
-func Local[T any](hook Hook[T], options ...opts.Option[ExecutionContext]) ExecutionContext {
-	fut := executor.NewFuture(executor.DefaultUnmarshal[T]())
-	dp := &deferredPromise[T]{
-		promise: fut,
-		hook:    hook,
-	}
-
-	execCtx := ExecutionContext{
-		executor: executor.NewLocal(),
-		hook:     hook,
-		promise:  dp,
-		onClose: func(ctx context.Context) {
-			dp.Forward(ctx)
-			hook.OnClose(ctx)
-		},
-	}
-
-	if err := opts.Apply(&execCtx, options); err != nil {
-		panic(err)
-	}
-
-	return execCtx
-}
-
+// Run executes the conversation workflow defined by the Knot's steps.
+// It processes each step sequentially using the provided execution context.
+// The last step's output can be structured according to the response schema if specified.
 func (p *Knot) Run(ctx context.Context, rc ExecutionContext) error {
 	defer rc.onClose(ctx)
 

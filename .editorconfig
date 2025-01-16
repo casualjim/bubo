@@ -1,7 +1,29 @@
-# top-most EditorConfig file
+# EditorConfig helps maintain consistent coding styles across different editors and IDEs.
+# See https://editorconfig.org for more details.
+#
+# This configuration ensures:
+#   1. Consistent line endings (LF) across all platforms
+#   2. Standard indentation (2 spaces for most files, tabs for Go/Makefiles)
+#   3. UTF-8 encoding for source files
+#   4. No trailing whitespace (except in Markdown)
+#   5. Final newline in all files
+#
+# Key settings explained:
+#   - root = true: Stops EditorConfig from looking beyond this directory
+#   - end_of_line = lf: Uses Unix-style line endings
+#   - indent_style: Uses spaces or tabs as specified
+#   - indent_size: Defines indentation width (2 spaces by default)
+#   - charset: Ensures consistent character encoding
+#   - trim_trailing_whitespace: Removes unnecessary whitespace
+#   - insert_final_newline: Ensures files end with a newline
+#
+# This configuration aligns with Go community standards and general best practices
+# for mixed-language projects.
+
+# Mark this as the top-most EditorConfig file
 root = true
 
-# Unix-style newlines with a newline ending every file
+# Default settings for all files
 [*]
 end_of_line = lf
 insert_final_newline = true
@@ -23,4 +45,3 @@ trim_trailing_whitespace = false
 [*.py]
 indent_style = space
 indent_size = 2
-

@@ -18,6 +18,11 @@ func envStrOrDefault(key string, def string) string {
 	return s
 }
 
+// NewClient creates a new Temporal client with the specified options.
+// It initializes a logger and uses it to create a lazy Temporal client.
+// The Temporal server address is obtained from the environment variable
+// "TEMPORAL_ADDRESS", or defaults to the client's default host and port.
+// Returns the created Temporal client or an error if the client creation fails.
 func NewClient() (client.Client, error) {
 	lg := slog.Default().With(slogx.LoggerName("bubo.temporal"))
 

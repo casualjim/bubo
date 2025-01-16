@@ -1,5 +1,27 @@
+// Package shorttermmemory provides functionality for tracking and managing token usage
+// in AI model interactions. It helps monitor resource consumption and maintain usage
+// metrics across conversation turns.
 package shorttermmemory
 
+// Usage tracks token consumption across different aspects of AI model interactions.
+// It provides detailed breakdowns of token usage for both prompts and completions,
+// which is essential for monitoring costs and optimizing resource usage.
+//
+// Example usage:
+//
+//	usage := &Usage{
+//	    CompletionTokens: 150,
+//	    PromptTokens: 200,
+//	    TotalTokens: 350,
+//	    CompletionTokensDetails: CompletionTokensDetails{
+//	        ReasoningTokens: 100,
+//	        AudioTokens: 50,
+//	    },
+//	    PromptTokensDetails: PromptTokensDetails{
+//	        AudioTokens: 150,
+//	        CachedTokens: 50,
+//	    },
+//	}
 type Usage struct {
 	// Number of tokens in the generated completion.
 	CompletionTokens int64 `json:"completion_tokens"`
@@ -13,6 +35,22 @@ type Usage struct {
 	PromptTokensDetails PromptTokensDetails `json:"prompt_tokens_details"`
 }
 
+// AddUsage combines the token counts from another Usage instance with this one.
+// This is useful for aggregating usage across multiple interactions or turns in
+// a conversation.
+//
+// The method safely handles nil inputs and updates all token counts and details.
+// It's particularly useful for:
+//   - Tracking cumulative usage across conversation turns
+//   - Aggregating usage across multiple model calls
+//   - Maintaining usage statistics for billing purposes
+//
+// Example:
+//
+//	baseUsage := &Usage{CompletionTokens: 100}
+//	additionalUsage := &Usage{CompletionTokens: 50}
+//	baseUsage.AddUsage(additionalUsage)
+//	// baseUsage.CompletionTokens is now 150
 func (u *Usage) AddUsage(usage *Usage) {
 	if usage == nil {
 		return
@@ -24,6 +62,15 @@ func (u *Usage) AddUsage(usage *Usage) {
 	u.PromptTokensDetails.AddUsage(&usage.PromptTokensDetails)
 }
 
+// CompletionTokensDetails provides a detailed breakdown of token usage in model completions.
+// This structure is particularly important for understanding how tokens are being used
+// across different aspects of model output, including predictions and reasoning.
+//
+// The token counts help in:
+//   - Optimizing model usage and costs
+//   - Debugging model behavior
+//   - Monitoring prediction efficiency
+//   - Tracking audio processing usage
 type CompletionTokensDetails struct {
 	// When using Predicted Outputs, the number of tokens in the prediction that
 	// appeared in the completion.
@@ -39,6 +86,37 @@ type CompletionTokensDetails struct {
 	RejectedPredictionTokens int64 `json:"rejected_prediction_tokens"`
 }
 
+// AddUsage updates the CompletionTokensDetails with usage information.
+// It increments the token counts for accepted predictions, audio, reasoning, and rejected predictions.
+//
+// Parameters:
+//   - details: A pointer to the CompletionTokensDetails struct to be updated.
+//   - acceptedPredictionTokens: Tokens used in accepted predictions.
+//   - audioTokens: Tokens used in audio processing.
+//   - reasoningTokens: Tokens used in reasoning tasks.
+//   - rejectedPredictionTokens: Tokens used in rejected predictions.
+//
+// Example:
+//
+//	details := &CompletionTokensDetails{}
+//	AddUsage(details, 100, 50, 30, 20)
+//
+// AddUsage combines token counts from another CompletionTokensDetails instance.
+// This method is used internally by Usage.AddUsage to maintain accurate token
+// counts across all completion aspects.
+//
+// The method safely handles nil inputs and updates all token categories:
+//   - Accepted prediction tokens
+//   - Audio processing tokens
+//   - Reasoning tokens
+//   - Rejected prediction tokens
+//
+// Example:
+//
+//	details := &CompletionTokensDetails{ReasoningTokens: 100}
+//	newDetails := &CompletionTokensDetails{ReasoningTokens: 50}
+//	details.AddUsage(newDetails)
+//	// details.ReasoningTokens is now 150
 func (c *CompletionTokensDetails) AddUsage(details *CompletionTokensDetails) {
 	if details == nil {
 		return
@@ -49,6 +127,15 @@ func (c *CompletionTokensDetails) AddUsage(details *CompletionTokensDetails) {
 	c.RejectedPredictionTokens += details.RejectedPredictionTokens
 }
 
+// PromptTokensDetails tracks token usage specifically for prompt inputs.
+// It separates tokens used for audio inputs and cached content, which is
+// useful for optimizing prompt construction and monitoring caching efficiency.
+//
+// This breakdown helps in:
+//   - Understanding prompt composition
+//   - Monitoring cache effectiveness
+//   - Tracking audio input usage
+//   - Optimizing prompt design
 type PromptTokensDetails struct {
 	// Audio input tokens present in the prompt.
 	AudioTokens int64 `json:"audio_tokens"`
@@ -56,6 +143,20 @@ type PromptTokensDetails struct {
 	CachedTokens int64 `json:"cached_tokens"`
 }
 
+// AddUsage combines token counts from another PromptTokensDetails instance.
+// This method is used internally by Usage.AddUsage to maintain accurate
+// token counts for prompt-related usage.
+//
+// The method safely handles nil inputs and updates:
+//   - Audio input tokens
+//   - Cached tokens
+//
+// Example:
+//
+//	details := &PromptTokensDetails{AudioTokens: 100}
+//	newDetails := &PromptTokensDetails{AudioTokens: 50}
+//	details.AddUsage(newDetails)
+//	// details.AudioTokens is now 150
 func (p *PromptTokensDetails) AddUsage(details *PromptTokensDetails) {
 	if details == nil {
 		return

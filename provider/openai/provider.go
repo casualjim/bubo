@@ -17,10 +17,23 @@ import (
 	"github.com/openai/openai-go/shared"
 )
 
+// Provider represents a service provider that interacts with the OpenAI API.
+// It contains a client to communicate with the OpenAI service.
 type Provider struct {
 	client *openai.Client
 }
 
+// New creates a new instance of Provider with the given request options.
+// It initializes an OpenAI client using the provided options and returns
+// a pointer to the newly created Provider.
+//
+// Parameters:
+//
+//	options - A variadic list of request options to configure the OpenAI client.
+//
+// Returns:
+//
+//	*Provider - A pointer to the initialized Provider instance.
 func New(options ...option.RequestOption) *Provider {
 	client := openai.NewClient(options...)
 	return &Provider{

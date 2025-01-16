@@ -7,6 +7,14 @@ import (
 	"strings"
 )
 
+// IsFunction checks if the provided value is a function.
+// It returns true if the value is a function, otherwise it returns false.
+//
+// Parameters:
+//   - fn: The value to be checked.
+//
+// Returns:
+//   - bool: true if the value is a function, false otherwise.
 func IsFunction(fn any) bool {
 	if fn == nil {
 		return false
@@ -18,6 +26,17 @@ func IsFunction(fn any) bool {
 	return isFunc
 }
 
+// FunctionName returns the name of the given function.
+// If the input is not a function, it returns an empty string.
+// For named types, it returns the type name.
+// For methods, it returns the method name.
+// For anonymous functions, it returns the full signature.
+//
+// Parameters:
+//   - fn: any type, expected to be a function.
+//
+// Returns:
+//   - string: the name of the function or an empty string if the input is not a function.
 func FunctionName(fn any) string {
 	if !IsFunction(fn) {
 		return ""

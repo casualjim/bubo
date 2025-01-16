@@ -1,97 +1,98 @@
-# 🦉 Bubo: A Framework for Building AI Agents
+# Bubo
 
-Bubo is a Go framework for creating and orchestrating AI agents, with first-class
-support for OpenAI's GPT models and function calling capabilities.
+Bubo is a powerful Go library for building and orchestrating AI agents with a focus
+on reliability, extensibility, and maintainable workflows.
 
-## 🌟 Overview
+## Overview
 
-Bubo provides a robust foundation for building AI agents that can:
+Bubo provides a robust foundation for creating AI-powered applications by offering:
 
-- Execute tools and functions with parallel execution support
-- Handle streaming responses from LLM providers
-- Process multi-modal inputs (text, images, audio)
-- Manage complex conversation threads
-- Maintain short-term memory for context
-- Support event-driven architectures
+- **Agent Orchestration**: Coordinate multiple AI agents working together
+- **Event-Driven Architecture**: Built on a reliable event system for agent communication
+- **Provider Abstraction**: Flexible integration with AI providers
+- **Tool System**: Extensible framework for adding custom capabilities to agents
+- **Memory Management**: Built-in short-term memory system for context retention
+- **Workflow Engine**: Integration with Temporal for reliable workflow execution
+- **Message Broker**: NATS integration for scalable message handling
 
-## 🏗 Project Structure
+## Architecture
 
-- `api/` - Core API definitions and agent-related functionality
-- `events/` - Event system for hooks and message handling
-- `messages/` - Message types and content handling
-- `provider/` - LLM provider integrations (OpenAI, etc.)``
-- `tool/` - Tool system implementation
-- `internal/`
-  - `broker/` - Message broker implementation
-  - `executor/` - Tool execution engine
-  - `shorttermmemory/` - Context management and memory
-- `examples/` - Example implementations and usage patterns
+```ascii
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│     Agent       │     │    Provider     │     │      Tool       │
+│  Orchestration  │◄────┤   Integration   │◄────┤    System       │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+         ▲                      ▲                       ▲
+         │                      │                       │
+         ▼                      ▼                       ▼
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│     Event       │     │     Memory      │     │    Workflow     │
+│     System      │◄────┤   Management    │◄────┤     Engine      │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+```
 
-## ✨ Key Features
+### Core Components
 
-- 🛠 **Flexible Agent System**
-  - Define custom agents with specific tools and capabilities
-  - Configure model parameters and instructions
-  - Support for parallel tool execution
-  - Short-term memory for maintaining context
-  
-- 🔌 **Provider Integration**
-  - First-class support for OpenAI's chat models
-  - Extensible provider system for other LLMs
-  - Streaming support for real-time responses
-  - Function calling capabilities
-  - Multi-modal content handling (text, images, audio)
+- **Agent**: Manages AI agent lifecycle and coordination
+- **Provider**: Abstracts AI provider integration (e.g., OpenAI)
+- **Tool**: Extensible system for adding capabilities to agents
+- **Events**: Reliable event system for agent communication
+- **Memory**: Short-term memory management for context retention
+- **Workflow**: Temporal integration for reliable execution
 
-- 📝 **Rich Message Handling**
-  - Support for various message types (user, assistant, tool calls)
-  - Structured content parts for different media types
-  - Thread management for complex conversations
-  - Event-driven message processing
+## Installation
 
-- 🔧 **Tool System**
-  - Define custom tools with JSON schema validation
-  - Support for parallel tool execution
-  - Structured tool responses and error handling
-  - Tool generation utilities
+### Prerequisites
 
-- 📊 **Observability**
-  - Event hooks for system monitoring
-  - Stream events for real-time monitoring
-  - Error tracking and handling
+- Go 1.20 or later
+- NATS Server (for message broker)
+- Temporal (for workflow engine)
 
-## 🚀 Getting Started
+### Using Go Modules
+
+```bash
+go get github.com/casualjim/bubo
+```
+
+## Basic Usage
+
+### Agent Handoff Example
+
+This example demonstrates how to create agents that can transfer control between
+each other based on language:
 
 ```go
 package main
 
 import (
-  "context"
-  "log/slog"
-  "os"
-  "time"
+    "context"
+    "log/slog"
+    "os"
+    "time"
 
-  // Ensure API Key is loaded
-  _ "github.com/joho/godotenv/autoload"
+    // Ensure API Key is loaded
+    _ "github.com/joho/godotenv/autoload"
 
-  "github.com/casualjim/bubo"
-  "github.com/casualjim/bubo/api"
-  "github.com/casualjim/bubo/examples/internal/msgfmt"
-  "github.com/casualjim/bubo/agent"
-  "github.com/casualjim/bubo/provider/openai"
+    "github.com/casualjim/bubo"
+    "github.com/casualjim/bubo/api"
+    "github.com/casualjim/bubo/examples/internal/msgfmt"
+    "github.com/casualjim/bubo/agent"
+    "github.com/casualjim/bubo/provider/openai"
 )
 
+// Define agents with specific language capabilities
 var (
-  englishAgent = agent.New(
-    agent.Name("English Agent"),
-    agent.Model(openai.GPT4oMini()),
-    agent.Instructions("You only speak English, so you only reply in english."),
-    agent.Tools(transferToSpanishAgentTool),
-  )
-  spanishAgent = agent.New(
-    agent.Name("Spanish Agent"),
-    agent.Model(openai.GPT4oMini()),
-    agent.Instructions("You only speak Spanish, so you only reply in spanish."),
-  )
+    englishAgent = agent.New(
+        agent.Name("English Agent"),
+        agent.Model(openai.GPT4oMini()),
+        agent.Instructions("You only speak English, so you only reply in english."),
+        agent.Tools(transferToSpanishAgentTool),
+    )
+    spanishAgent = agent.New(
+        agent.Name("Spanish Agent"),
+        agent.Model(openai.GPT4oMini()),
+        agent.Instructions("You only speak Spanish, so you only reply in spanish."),
+    )
 )
 
 // Transfer spanish speaking users immediately
@@ -100,51 +101,112 @@ var (
 func transferToSpanishAgent() api.Agent { return spanishAgent }
 
 func main() {
-  slog.Info("running basic/agent-handoff example")
-  ctx := context.Background()
+    ctx := context.Background()
 
-  hook, result := msgfmt.Console[string](ctx, os.Stdout)
+    // Configure console output
+    hook, result := msgfmt.Console[string](ctx, os.Stdout)
 
-  p := bubo.New(
-    bubo.Agents(englishAgent),
-    bubo.Steps(
-      bubo.Step(englishAgent.Name(), "Hola. ¿Como estás?"),
-    ),
-  )
+    // Create and run workflow
+    p := bubo.New(
+        bubo.Agents(englishAgent),
+        bubo.Steps(
+            bubo.Step(englishAgent.Name(), "Hola. ¿Como estás?"),
+        ),
+    )
 
-  if err := p.Run(ctx, bubo.Local(hook)); err != nil {
-    slog.Error("error running agent", "error", err)
-    return
-  }
+    if err := p.Run(ctx, bubo.Local(hook)); err != nil {
+        slog.Error("error running agent", "error", err)
+        return
+    }
 
-  <-result
+    <-result
 }
-
 ```
 
-We include a code generation tool to convert the go function into an agent function:
+See the [examples](./examples) directory for more usage patterns including:
 
-```sh
-go run github.com/casualjim/bubo/cmd/bubo-tool-gen@latest
+- Basic examples
+  - Agent handoff
+  - Context variables
+  - Function calling
+  - Structured output
+- Temporal workflow integration
+- Triage system implementation
+
+## Component Relationships
+
+### Agent ↔ Provider
+
+Agents use providers to interact with AI models. The provider abstraction
+allows for easy integration of different AI services.
+
+### Agent ↔ Tool
+
+Tools extend agent capabilities by providing specific functionalities.
+Tools can be generated using the `bubo-tool-gen` command for marker
+comments like:
+
+```go
+// bubo:agentTool
+func transferToSpanishAgent() api.Agent { return spanishAgent }
 ```
 
-## 📦 Installation
+### Agent ↔ Memory
+
+The memory system helps agents maintain context across interactions and share
+information.
+
+### Provider ↔ Tool
+
+Providers can utilize tools to enhance AI model capabilities and provide additional
+functionalities.
+
+## Contributing
+
+### Development Setup
+
+Clone the repository:
 
 ```bash
-go get github.com/casualjim/bubo
+git clone https://github.com/casualjim/bubo.git
+cd bubo
 ```
 
-### Code generation
+Install dependencies:
 
-```sh
-go install github.com/casualjim/bubo/cmd/bubo-tool-gen@latest
+```bash
+go mod download
 ```
 
-## 🛠 Requirements
+Run tests:
 
-- Go 1.21 or higher
-- OpenAI API key (for OpenAI provider)
+```bash
+go test ./...
+```
 
-## 📝 License
+### Guidelines
 
-This project is licensed under the terms specified in the LICENSE file.
+1. **Code Style**
+   - Follow Go best practices and idioms
+   - Use 2 spaces for indentation
+   - Run `golangci-lint run` before submitting PRs
+
+2. **Testing**
+   - Write unit tests for new functionality
+   - Ensure existing tests pass
+   - For concurrent tests, use signals/events instead of timing
+
+3. **Documentation**
+   - Update documentation for new features
+   - Include godoc examples for public APIs
+   - Keep the README updated
+
+4. **Pull Requests**
+   - Create feature branches from `main`
+   - Include tests and documentation
+   - Ensure CI passes
+   - Request review from maintainers
+
+## License
+
+This project is licensed under the [LICENSE](./LICENSE) file in the repository.

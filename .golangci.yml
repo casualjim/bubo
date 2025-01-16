@@ -1,4 +1,20 @@
+# golangci-lint configuration file
+# See https://golangci-lint.run/usage/configuration/ for details
+
+# This configuration focuses on:
+#   1. Code correctness and reliability
+#   2. Security best practices
+#   3. Code style consistency
+#   4. Performance optimizations
+#   5. Error handling patterns
+
+# Linter Configuration
+# -------------------
+# We use a curated set of linters that provide the most value while
+# maintaining reasonable performance and avoiding false positives.
+
 linters:
+  # Start with a clean slate and explicitly enable chosen linters
   disable-all: true
   enable:
     - errcheck # Check for unchecked errors
@@ -17,7 +33,14 @@ linters:
     - unparam # Find unused function parameters
     - whitespace # Tool for whitespace style
 
+# Linter-specific settings
+# -----------------------
+# These settings fine-tune the behavior of individual linters
+# to match our project's needs and reduce false positives.
+
 linters-settings:
+  # Security checker settings
+  # Excludes certain security checks that don't apply to our use cases
   gosec:
     excludes:
       - G404 # Insecure random number source (math/rand)
@@ -27,7 +50,13 @@ linters-settings:
     asserts: true
     comparison: true
 
+# Issue reporting configuration
+# ---------------------------
+# Controls how issues are reported and filtered
+
 issues:
+  # Rules for excluding certain types of issues
+  # Particularly useful for test files where some rules don't apply
   exclude-rules:
     - path: _test\.go
       linters:
@@ -36,7 +65,12 @@ issues:
 
   max-same-issues: 30
 
+# Runtime configuration
+# -------------------
+# Controls how golangci-lint executes
+
 run:
+  # Maximum time for analysis
   timeout: 5m
   tests: true
   allow-parallel-runners: true
@@ -44,7 +78,12 @@ run:
     - integration
     - test
 
+# Output formatting
+# ----------------
+# Controls how results are presented
+
 output:
+  # Enable sorting for consistent output
   sort-results: true
   print-issued-lines: true
   print-linter-name: true

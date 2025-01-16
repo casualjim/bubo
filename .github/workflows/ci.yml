@@ -1,28 +1,49 @@
+# GitHub Actions workflow for continuous integration
+# This workflow ensures code quality and compatibility across multiple platforms
+
+# Workflow name - displayed in GitHub Actions UI
 name: CI
 
+# Trigger configuration
+# --------------------
+# Runs on:
+#   1. Push to main branch (for continuous deployment)
+#   2. Pull requests to main branch (for pre-merge validation)
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
 
+# Job definitions
+# --------------
+# Each job runs independently and can be executed in parallel
 jobs:
+  # Main testing job
+  # ---------------
+  # Runs tests across multiple operating systems to ensure cross-platform compatibility
   test:
     name: Test
+    # Uses matrix strategy to run on multiple OS versions
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
+        # Test on all major operating systems
         os: [ubuntu-latest, macos-latest, windows-latest]
 
+    # Sequential steps for setting up and running tests
     steps:
       - uses: actions/checkout@v4
 
+      # Set up Go environment with caching for faster builds
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: "1.23.x"
           cache: true
 
+      # Platform-specific NATS server installation
+      # Required for integration tests that depend on NATS
       - name: Install NATS (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -33,12 +54,14 @@ jobs:
           sc.exe start nats-server
           Get-Content C:\nats\nats-server.log
 
+      # macOS NATS installation using Homebrew
       - name: Install NATS (macOS)
         if: runner.os == 'macOS'
         run: |
           brew install nats-server
           brew services start nats-server
 
+      # Linux NATS installation from official releases
       - name: Install NATS (Ubuntu)
         if: runner.os == 'Linux'
         run: |
@@ -47,21 +70,28 @@ jobs:
           sudo cp nats-server-v2.10.24-linux-amd64/nats-server /usr/local/bin/
           nats-server &
 
+      # Static code analysis using golangci-lint
+      # Enforces code quality standards defined in .golangci.yml
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
           version: latest
           args: --timeout=5m
 
+      # Install test runners for better output formatting
       - name: Install gotestsum
         run: go install gotest.tools/gotestsum@latest
 
       - name: Install gotestdox
         run: go install github.com/bitfield/gotestdox/cmd/gotestdox@latest
 
+      # Run tests with race detection and coverage reporting
+      # Uses testdox format for readable output
       - name: Run tests
         run: gotestsum -f testdox --format-hide-empty-pkg -- -coverprofile="cover.out" -covermode=atomic -race ./...
 
+      # Upload coverage reports to Codecov
+      # Helps track code coverage trends over time
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:

@@ -3,59 +3,16 @@ package bubo
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"slices"
-	"sync"
 
 	"github.com/alphadose/haxmap"
 	"github.com/casualjim/bubo/api"
-	"github.com/casualjim/bubo/events"
 	"github.com/casualjim/bubo/internal/executor"
 	"github.com/casualjim/bubo/internal/shorttermmemory"
 	"github.com/casualjim/bubo/messages"
 	"github.com/casualjim/bubo/provider"
-	"github.com/casualjim/bubo/types"
 	"github.com/fogfish/opts"
-	"github.com/invopop/jsonschema"
-	"github.com/tidwall/gjson"
 )
-
-type task interface {
-	task()
-}
-
-type stringTask string
-
-func (s stringTask) task() {}
-
-type messageTask messages.Message[messages.UserMessage]
-
-func (m messageTask) task() {}
-
-type ConversationStep struct {
-	agentName string
-	task      task
-}
-
-func Step[T Task](agentName string, tsk T) ConversationStep {
-	var t task
-	switch xt := any(tsk).(type) {
-	case string:
-		t = stringTask(xt)
-	case messages.Message[messages.UserMessage]:
-		t = messageTask(xt)
-	default:
-		panic(fmt.Sprintf("invalid task type: %T", xt))
-	}
-	return ConversationStep{
-		agentName: agentName,
-		task:      t,
-	}
-}
-
-type Task interface {
-	~string | messages.Message[messages.UserMessage]
-}
 
 type Knot struct {
 	name   string
@@ -92,119 +49,6 @@ func New(options ...opts.Option[Knot]) *Knot {
 		panic(err)
 	}
 	return p
-}
-
-func jsonSchema[T any]() *jsonschema.Schema {
-	var schema *jsonschema.Schema
-	var isGjsonResult bool
-	var t T
-	_, isGjsonResult = any(t).(gjson.Result)
-	isString := reflect.TypeFor[T]().Kind() == reflect.String
-
-	if !isGjsonResult && !isString {
-		schema = executor.ToJSONSchema[T]()
-	}
-
-	return schema
-}
-
-type ExecutionContext struct {
-	executor       executor.Executor
-	hook           events.Hook
-	promise        executor.Promise
-	responseSchema *provider.StructuredOutput
-	contextVars    types.ContextVars
-	onClose        func(context.Context)
-	stream         bool
-	maxTurns       int
-}
-
-func (e *ExecutionContext) createCommand(agent api.Agent, mem *shorttermmemory.Aggregator) (executor.RunCommand, error) {
-	cmd, err := executor.NewRunCommand(agent, mem, e.hook)
-	if err != nil {
-		return executor.RunCommand{}, err
-	}
-	if len(e.contextVars) > 0 {
-		cmd = cmd.WithContextVariables(e.contextVars)
-	}
-	if e.responseSchema != nil {
-		cmd = cmd.WithStructuredOutput(e.responseSchema)
-	}
-	if e.stream {
-		cmd = cmd.WithStream(e.stream)
-	}
-	if e.maxTurns > 0 {
-		cmd = cmd.WithMaxTurns(e.maxTurns)
-	}
-	return cmd, nil
-}
-
-type Future[T any] interface {
-	// can't type alias this (yet) because of the type parameter
-
-	Get() (T, error)
-}
-
-var (
-	WithContextVars = opts.ForName[ExecutionContext, types.ContextVars]("contextVars")
-	Streaming       = opts.ForName[ExecutionContext, bool]("stream")
-	WithMaxTurns    = opts.ForName[ExecutionContext, int]("maxTurns")
-)
-
-func StructuredOutput[T any](name, description string) opts.Option[ExecutionContext] {
-	return opts.Type[ExecutionContext](func(s *ExecutionContext) error {
-		schema := jsonSchema[T]()
-		if schema != nil {
-			s.responseSchema = &provider.StructuredOutput{
-				Name:        name,
-				Description: description,
-				Schema:      schema,
-			}
-		}
-		return nil
-	})
-}
-
-type deferredPromise[T any] struct {
-	promise executor.CompletableFuture[T]
-	hook    Hook[T]
-	mu      sync.Mutex
-	value   string
-	err     error
-	once    sync.Once
-}
-
-func (d *deferredPromise[T]) Forward(ctx context.Context) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if d.err != nil {
-		d.promise.Error(d.err)
-		return
-	}
-
-	d.promise.Complete(d.value)
-	res, err := d.promise.Get()
-	if err != nil {
-		d.hook.OnError(ctx, err)
-		return
-	}
-	d.hook.OnResult(ctx, res)
-}
-
-func (d *deferredPromise[T]) Complete(result string) {
-	d.once.Do(func() {
-		d.mu.Lock()
-		defer d.mu.Unlock()
-		d.value = result
-	})
-}
-
-func (d *deferredPromise[T]) Error(err error) {
-	d.once.Do(func() {
-		d.mu.Lock()
-		defer d.mu.Unlock()
-		d.err = err
-	})
 }
 
 func Local[T any](hook Hook[T], options ...opts.Option[ExecutionContext]) ExecutionContext {
@@ -261,11 +105,6 @@ func (p *Knot) Run(ctx context.Context, rc ExecutionContext) error {
 	return nil
 }
 
-type noopPromise struct{}
-
-func (noopPromise) Complete(string) {}
-func (noopPromise) Error(error)     {}
-
 func (p *Knot) runStep(ctx context.Context, agentName string, prompt task, rc ExecutionContext) error {
 	agent, found := p.agents.Get(agentName)
 	if !found {
@@ -295,10 +134,4 @@ func (p *Knot) runStep(ctx context.Context, agentName string, prompt task, rc Ex
 		return err
 	}
 	return nil
-}
-
-type Hook[T any] interface {
-	events.Hook
-	OnResult(context.Context, T)
-	OnClose(context.Context)
 }

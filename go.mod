@@ -22,7 +22,7 @@ require (
 	github.com/tidwall/gjson v1.18.0
 	github.com/tidwall/sjson v1.2.5
 	github.com/wk8/go-ordered-map/v2 v2.1.8
-	go.temporal.io/api v1.43.1
+	go.temporal.io/api v1.43.2
 	go.temporal.io/sdk v1.31.0
 	mvdan.cc/gofumpt v0.7.0
 )

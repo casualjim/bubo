@@ -30,3 +30,6 @@ build-single-tool tool:
 
 run-example example:
   @go run ./examples/{{example}}
+
+update-pre-commit:
+  @pre-commit autoupdate

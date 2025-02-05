@@ -22,13 +22,16 @@ import (
 
 	"github.com/casualjim/bubo/api"
 	"github.com/casualjim/bubo/events"
+	"github.com/casualjim/bubo/internal/broker"
 	"github.com/casualjim/bubo/internal/executor"
 	"github.com/casualjim/bubo/internal/shorttermmemory"
 	"github.com/casualjim/bubo/provider"
 	"github.com/casualjim/bubo/types"
 	"github.com/fogfish/opts"
 	"github.com/invopop/jsonschema"
+	"github.com/nats-io/nats.go"
 	"github.com/tidwall/gjson"
+	"go.temporal.io/sdk/client"
 )
 
 // Local creates a new ExecutionContext configured for local execution.
@@ -66,6 +69,30 @@ func Local[T any](hook Hook[T], options ...opts.Option[ExecutionContext]) Execut
 
 	execCtx := ExecutionContext{
 		executor: executor.NewLocal(),
+		hook:     hook,
+		promise:  dp,
+		onClose: func(ctx context.Context) {
+			dp.Forward(ctx)
+			hook.OnClose(ctx)
+		},
+	}
+
+	if err := opts.Apply(&execCtx, options); err != nil {
+		panic(err)
+	}
+
+	return execCtx
+}
+
+func Temporal[T any](hook Hook[T], client client.Client, natsClient *nats.Conn, options ...opts.Option[ExecutionContext]) ExecutionContext {
+	fut := executor.NewFuture(executor.DefaultUnmarshal[T]())
+	dp := &deferredPromise[T]{
+		promise: fut,
+		hook:    hook,
+	}
+
+	execCtx := ExecutionContext{
+		executor: executor.NewTemporal(client, broker.NATS(natsClient)),
 		hook:     hook,
 		promise:  dp,
 		onClose: func(ctx context.Context) {

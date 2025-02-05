@@ -4,8 +4,5 @@
 # direnv
 .direnv
 
-# pre-commit
-.pre-commit-config.yaml
-
 *.out
 .env

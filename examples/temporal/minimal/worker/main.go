@@ -5,23 +5,21 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/user"
 	"time"
 
 	// Ensure API Key is loaded
+	_ "github.com/casualjim/bubo/provider/openai"
 	_ "github.com/joho/godotenv/autoload"
 
-	"github.com/casualjim/bubo"
-	"github.com/casualjim/bubo/agent"
-	"github.com/casualjim/bubo/examples/internal/msgfmt"
-	"github.com/casualjim/bubo/messages"
+	"github.com/casualjim/bubo/internal/broker"
+	"github.com/casualjim/bubo/internal/executor"
 	"github.com/casualjim/bubo/pkg/natsx"
 	"github.com/casualjim/bubo/pkg/slogx"
 	"github.com/casualjim/bubo/pkg/tprl"
-	"github.com/casualjim/bubo/provider/openai"
 	"github.com/phsym/zeroslog"
 	"github.com/rs/zerolog"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/worker"
 )
 
 var log zerolog.Logger
@@ -33,8 +31,6 @@ func init() {
 		zeroslog.NewHandler(log, &zeroslog.HandlerOptions{Level: slog.LevelDebug}),
 	))
 }
-
-var minimalAgent = agent.New(agent.Name("minimal-agent"), agent.Model(openai.GPT4o()), agent.Instructions("You are a helpful assistant"))
 
 func main() {
 	slog.Info("running temporal/minimal example")
@@ -61,26 +57,10 @@ func mainE(ctx context.Context) error {
 		return fmt.Errorf("failed to create nats client: %w", err)
 	}
 
-	u, err := user.Current()
-	buboName := "User"
-	if err == nil && u != nil {
-		buboName = u.Username
+	tpa := executor.NewTemporalAgentWorker(tp, broker.NATS(nt))
+
+	if err := tpa.Run(worker.InterruptCh()); err != nil {
+		return fmt.Errorf("failed to run temporal agent worker: %w", err)
 	}
-
-	hook, result := msgfmt.Console[string](ctx, os.Stdout)
-	msg := "What is the answer to the ultimate question of life, the universe, and everything?"
-	prompt := messages.New().WithSender(buboName).UserPrompt(msg)
-	p := bubo.New(
-		bubo.Agents(minimalAgent),
-		bubo.Steps(
-			bubo.Step(minimalAgent.Name(), prompt),
-		),
-	)
-
-	if err := p.Run(ctx, bubo.Temporal(hook, tp, nt)); err != nil {
-		return fmt.Errorf("failed to run prompt: %w", err)
-	}
-
-	<-result
 	return nil
 }

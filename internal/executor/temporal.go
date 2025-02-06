@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"log/slog"
 	"maps"
 	"slices"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"github.com/casualjim/bubo/internal/broker"
 	"github.com/casualjim/bubo/internal/shorttermmemory"
 	"github.com/casualjim/bubo/messages"
+	"github.com/casualjim/bubo/pkg/slogx"
 	"github.com/casualjim/bubo/provider"
 	"github.com/casualjim/bubo/provider/models"
 	"github.com/casualjim/bubo/tool"
@@ -27,8 +29,18 @@ import (
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/temporal"
+	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 )
+
+var _ Executor = (*TemporalProxy)(nil)
+
+func NewTemporal(client client.Client, broker broker.Broker) *TemporalProxy {
+	return &TemporalProxy{
+		client: client,
+		broker: broker,
+	}
+}
 
 type TemporalProxy struct {
 	client client.Client
@@ -38,7 +50,7 @@ type TemporalProxy struct {
 func (t *TemporalProxy) Run(ctx context.Context, cmd RunCommand, promise Promise) error {
 	if err := cmd.Validate(); err != nil {
 		promise.Error(err)
-		return err
+		return fmt.Errorf("run: invalid command: %w", err)
 	}
 
 	params := runParams{
@@ -49,35 +61,44 @@ func (t *TemporalProxy) Run(ctx context.Context, cmd RunCommand, promise Promise
 	}
 	if err := t.validateAgentAndProvider(ctx, &params); err != nil {
 		promise.Error(err)
-		return err
+		return fmt.Errorf("run: invalid agent or provider: %w", err)
 	}
 
 	topic := t.broker.Topic(ctx, cmd.id.String())
 	sub, err := topic.Subscribe(ctx, cmd.Hook)
 	if err != nil {
-		return err
+		return fmt.Errorf("run: failed to subscribe to topic: %w", err)
 	}
 	defer sub.Unsubscribe()
 
 	fut, err := t.client.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
-		ID:        fmt.Sprintf("%s-%s", cmd.Agent.Name(), cmd.id),
-		TaskQueue: "agent-" + nameAsID(cmd.Agent.Name()),
-	}, RemoteRunCommandFromRunCommand(cmd))
+		ID: fmt.Sprintf("%s-%s", cmd.Agent.Name(), cmd.id),
+		// TaskQueue: "agent-" + nameAsID(cmd.Agent.Name()),
+		TaskQueue: "bubo-agent-queue",
+	}, "Run", RemoteRunCommandFromRunCommand(cmd))
 	if err != nil {
 		promise.Error(err)
-		return err
+		return fmt.Errorf("run: failed to execute workflow: %w", err)
 	}
 
 	var result RemoteRunResult
 	err = fut.Get(ctx, &result)
 	if err != nil {
 		promise.Error(err)
-		return err
+		return fmt.Errorf("run: failed to get workflow result: %w", err)
 	}
 
 	result.Checkpoint.MergeInto(cmd.Thread)
-	promise.Complete(result.Result)
+	if result.Type == RemoteRunResultTypeCompletion {
+		promise.Complete(result.Result)
+	} else {
+		promise.Error(fmt.Errorf("unexpected result type: %v", result.Type))
+	}
 	return nil
+}
+
+func (t *TemporalProxy) handleToolCalls(ctx context.Context, params toolCallParams) (api.Agent, error) {
+	return nil, errors.New("handle tool calls is not supported in the proxy agent")
 }
 
 func (t *TemporalProxy) validateAgentAndProvider(ctx context.Context, params *runParams) error {
@@ -109,6 +130,25 @@ func (t *TemporalProxy) publishError(ctx context.Context, params *runParams, err
 	if ee, hasErr := wrapErr(params.runID, params.turnID, params.agent.Name(), err); hasErr {
 		params.hook.OnError(ctx, ee)
 	}
+}
+
+func NewTemporalAgentWorker(client client.Client, broker broker.Broker) worker.Worker {
+	tprl := &Temporal{
+		broker: broker,
+	}
+
+	wrk := worker.New(client, "bubo-agent-queue", worker.Options{
+		OnFatalError: func(err error) {
+			slog.Error("AI worker encountered a fatal error", slogx.Error(err))
+		},
+	})
+	wrk.RegisterWorkflow(tprl.Run)
+	wrk.RegisterWorkflow(tprl.RunChildWorkflow)
+	wrk.RegisterActivity(tprl.RunCompletion)
+	wrk.RegisterActivity(tprl.PublishError)
+	wrk.RegisterActivity(tprl.CallTool)
+
+	return wrk
 }
 
 type Temporal struct {
@@ -173,7 +213,8 @@ type RemoteRunResult struct {
 
 func RemoteRunCommandFromRunCommand(cmd RunCommand) RemoteRunCommand {
 	return RemoteRunCommand{
-		ID: cmd.id,
+		ID:         cmd.id,
+		Checkpoint: cmd.Thread.Checkpoint(),
 		Agent: RemoteAgent{
 			Name:              cmd.Agent.Name(),
 			Model:             cmd.Agent.Model().Name(),
@@ -187,11 +228,12 @@ func RemoteRunCommandFromRunCommand(cmd RunCommand) RemoteRunCommand {
 	}
 }
 
-func (t *Temporal) RunChildWorkflow(ctx workflow.Context, cmd RemoteRunCommand) (string, error) {
+func (t *Temporal) RunChildWorkflow(ctx workflow.Context, cmd RemoteRunCommand) (RemoteRunResult, error) {
 	return t.Run(ctx, cmd)
 }
 
-func (t *Temporal) Run(ctx workflow.Context, cmd RemoteRunCommand) (string, error) {
+func (t *Temporal) Run(ctx workflow.Context, cmd RemoteRunCommand) (RemoteRunResult, error) {
+	workflow.GetLogger(ctx).Info("Running workflow", "id", cmd.ID)
 	mem := shorttermmemory.New()
 	cmd.Checkpoint.MergeInto(mem)
 
@@ -218,13 +260,13 @@ func (t *Temporal) Run(ctx workflow.Context, cmd RemoteRunCommand) (string, erro
 			if errors.As(err, &continueErr) {
 				continue // Agent transfer occurred
 			}
-			return "", err
+			return RemoteRunResult{}, err
 		}
 
 		switch res.Type {
 		case RemoteRunResultTypeCompletion:
 			res.Checkpoint.MergeInto(mem)
-			return res.Result, nil
+			return res, nil
 		case RemoteRunResultTypeToolCall:
 			if res.ToolCalls == nil {
 				continue
@@ -244,7 +286,7 @@ func (t *Temporal) Run(ctx workflow.Context, cmd RemoteRunCommand) (string, erro
 					maps.Copy(ctxVars, toolResult.CtxVars)
 				}
 				if err != nil {
-					return "", err
+					return RemoteRunResult{}, err
 				}
 
 				// Handle potential agent transfer
@@ -256,7 +298,7 @@ func (t *Temporal) Run(ctx workflow.Context, cmd RemoteRunCommand) (string, erro
 					}
 					ctx = workflow.WithChildOptions(ctx, cwo)
 
-					var childResult string
+					var childResult RemoteRunResult
 					childFuture := workflow.ExecuteChildWorkflow(ctx, t.RunChildWorkflow, RemoteRunCommand{
 						ID:               cmd.ID,
 						Agent:            *toolResult.Agent,
@@ -268,7 +310,7 @@ func (t *Temporal) Run(ctx workflow.Context, cmd RemoteRunCommand) (string, erro
 					})
 
 					if err := childFuture.Get(ctx, &childResult); err != nil {
-						return "", fmt.Errorf("child workflow failed: %w", err)
+						return RemoteRunResult{}, fmt.Errorf("child workflow failed: %w", err)
 					}
 					continue
 				}
@@ -297,9 +339,9 @@ func (t *Temporal) Run(ctx workflow.Context, cmd RemoteRunCommand) (string, erro
 		Agent:      activeAgent,
 		Checkpoint: mem.Checkpoint(),
 	}, "max turns reached").Get(ctx, nil); err != nil {
-		return "", fmt.Errorf("failed to publish max turns error: %w", err)
+		return RemoteRunResult{}, fmt.Errorf("failed to publish max turns error: %w", err)
 	}
-	return "", errors.New("max turns reached")
+	return RemoteRunResult{}, errors.New("max turns reached")
 }
 
 func (t *Temporal) runCompletionActivity(ctx workflow.Context, cmd completionParams) (RemoteRunResult, error) {
@@ -318,7 +360,7 @@ func (t *Temporal) runCompletionActivity(ctx workflow.Context, cmd completionPar
 
 	var result RemoteRunResult
 	if err := workflow.ExecuteActivity(cctx, t.RunCompletion, cmd).Get(ctx, &result); err != nil {
-		return RemoteRunResult{}, err
+		return RemoteRunResult{}, fmt.Errorf("call runcompletion activity failed: %w", err)
 	}
 	return result, nil
 }
@@ -412,12 +454,13 @@ func (t *Temporal) RunCompletion(ctx context.Context, cmd completionParams) (Rem
 				lastMsg := msgs[len(msgs)-1]
 
 				if assistantMsg, ok := lastMsg.Payload.(messages.AssistantMessage); ok {
-					return RemoteRunResult{
+					result := RemoteRunResult{
 						ID:         cmd.RunID,
 						Result:     assistantMsg.Content.Content,
 						Checkpoint: agg.Checkpoint(),
 						Type:       RemoteRunResultTypeCompletion,
-					}, nil
+					}
+					return result, nil
 				}
 
 				if toolCallMsg, ok := lastMsg.Payload.(messages.ToolCallMessage); ok {

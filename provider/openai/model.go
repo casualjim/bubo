@@ -15,7 +15,7 @@ func GPT4oMini(opts ...option.RequestOption) api.Model {
 }
 
 func GPT4o(opts ...option.RequestOption) api.Model {
-	return Model(openai.ChatModelChatgpt4oLatest, opts...)
+	return Model(openai.ChatModelGPT4o, opts...)
 }
 
 func O1Mini(opts ...option.RequestOption) api.Model {
@@ -24,6 +24,18 @@ func O1Mini(opts ...option.RequestOption) api.Model {
 
 func O1(opts ...option.RequestOption) api.Model {
 	return Model(openai.ChatModelO1, opts...)
+}
+
+func init() {
+	oaiModels := []openai.ChatModel{
+		openai.ChatModelGPT4oMini,
+		openai.ChatModelGPT4o,
+		openai.ChatModelO1Mini,
+		openai.ChatModelO1,
+	}
+	for _, model := range oaiModels {
+		Model(model)
+	}
 }
 
 func Model(name string, opts ...option.RequestOption) api.Model {

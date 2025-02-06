@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"iter"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -106,6 +107,7 @@ func (p *Provider) ChatCompletion(ctx context.Context, params provider.Completio
 	if err != nil {
 		return nil, fmt.Errorf("failed to build request: %w", err)
 	}
+	slog.Info("Sending request to OpenAI", slog.Any("chatParams", chatParams))
 
 	events := make(chan provider.StreamEvent, 10)
 	go func() {

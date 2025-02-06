@@ -160,7 +160,7 @@ func TestTemporalRunCompletion(t *testing.T) {
 			},
 		}
 		// Execute workflow
-		var result string
+		var result RemoteRunResult
 		env.env.ExecuteWorkflow(env.temporal.Run, RemoteRunCommand{
 			ID:         params.RunID,
 			Agent:      params.Agent,
@@ -172,7 +172,7 @@ func TestTemporalRunCompletion(t *testing.T) {
 		require.True(t, env.env.IsWorkflowCompleted())
 		require.NoError(t, env.env.GetWorkflowError())
 		require.NoError(t, env.env.GetWorkflowResult(&result))
-		assert.Equal(t, expectedResult, result)
+		assert.Equal(t, expectedResult, result.Result)
 	})
 
 	t.Run("error handling", func(t *testing.T) {
@@ -312,7 +312,7 @@ func TestTemporalRunCompletion(t *testing.T) {
 		env.env.RegisterActivity(env.temporal.RunCompletion)
 		env.env.RegisterActivity(env.temporal.CallTool)
 
-		var result string
+		var result RemoteRunResult
 		env.env.ExecuteWorkflow(env.temporal.Run, RemoteRunCommand{
 			ID: runID,
 			Agent: RemoteAgent{
@@ -328,7 +328,7 @@ func TestTemporalRunCompletion(t *testing.T) {
 		require.True(t, env.env.IsWorkflowCompleted())
 		require.NoError(t, env.env.GetWorkflowError())
 		require.NoError(t, env.env.GetWorkflowResult(&result))
-		assert.Equal(t, expectedResult, result)
+		assert.Equal(t, expectedResult, result.Result)
 	})
 }
 
@@ -460,7 +460,7 @@ func TestTemporalToolCallsWithComplexTypes(t *testing.T) {
 			return true
 		})).Return(nil).Times(3)
 
-		var result string
+		var result RemoteRunResult
 		env.env.ExecuteWorkflow(env.temporal.Run, RemoteRunCommand{
 			ID: runID,
 			Agent: RemoteAgent{
@@ -474,7 +474,7 @@ func TestTemporalToolCallsWithComplexTypes(t *testing.T) {
 		require.True(t, env.env.IsWorkflowCompleted())
 		require.NoError(t, env.env.GetWorkflowError())
 		require.NoError(t, env.env.GetWorkflowResult(&result))
-		assert.Equal(t, "final response", result)
+		assert.Equal(t, "final response", result.Result)
 		assert.Contains(t, toolResponse, `{"Name":"test","Value":42,"Nested":{"Flag":true}}`)
 	})
 
@@ -1106,7 +1106,7 @@ func TestTemporalToolCalls(t *testing.T) {
 			return ok && resp.Response.Content.Content == "final result with tool: tool result: test input"
 		})).Return(nil).Once()
 
-		var result string
+		var result RemoteRunResult
 		env.env.ExecuteWorkflow(env.temporal.Run, RemoteRunCommand{
 			ID: runID,
 			Agent: RemoteAgent{
@@ -1121,7 +1121,7 @@ func TestTemporalToolCalls(t *testing.T) {
 		require.True(t, env.env.IsWorkflowCompleted())
 		require.NoError(t, env.env.GetWorkflowError())
 		require.NoError(t, env.env.GetWorkflowResult(&result))
-		assert.Equal(t, "final result with tool: tool result: test input", result)
+		assert.Equal(t, "final result with tool: tool result: test input", result.Result)
 	})
 
 	t.Run("parallel tool calls", func(t *testing.T) {
@@ -1328,7 +1328,7 @@ func TestTemporalToolCalls(t *testing.T) {
 			return ok && resp.Response.Content.Content == "final result with tools: tool1 result: input1, tool2 result: input2"
 		})).Return(nil).Once()
 
-		var result string
+		var result RemoteRunResult
 		env.env.ExecuteWorkflow(env.temporal.Run, RemoteRunCommand{
 			ID: runID,
 			Agent: RemoteAgent{
@@ -1343,7 +1343,7 @@ func TestTemporalToolCalls(t *testing.T) {
 		require.True(t, env.env.IsWorkflowCompleted())
 		require.NoError(t, env.env.GetWorkflowError())
 		require.NoError(t, env.env.GetWorkflowResult(&result))
-		assert.Equal(t, "final result with tools: tool1 result: input1, tool2 result: input2", result)
+		assert.Equal(t, "final result with tools: tool1 result: input1, tool2 result: input2", result.Result)
 	})
 }
 
@@ -1636,7 +1636,7 @@ func TestTemporalRunWithAgentChain(t *testing.T) {
 		return ok
 	})).Return(nil).Times(2) // Called for initial completion, tool call, child workflow completion, and final completion
 
-	var result string
+	var result RemoteRunResult
 	env.env.ExecuteWorkflow(env.temporal.Run, RemoteRunCommand{
 		ID: runID,
 		Agent: RemoteAgent{
@@ -1651,5 +1651,5 @@ func TestTemporalRunWithAgentChain(t *testing.T) {
 	require.True(t, env.env.IsWorkflowCompleted())
 	require.NoError(t, env.env.GetWorkflowError())
 	require.NoError(t, env.env.GetWorkflowResult(&result))
-	assert.Equal(t, "final result", result)
+	assert.Equal(t, "final result", result.Result)
 }

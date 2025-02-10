@@ -6,7 +6,7 @@ require (
 	github.com/alphadose/haxmap v1.4.1
 	github.com/charmbracelet/glamour v0.8.0
 	github.com/fatih/color v1.18.0
-	github.com/fogfish/opts v0.0.4
+	github.com/fogfish/opts v0.0.5
 	github.com/go-openapi/strfmt v0.23.0
 	github.com/go-openapi/swag v0.23.0
 	github.com/goccy/go-json v0.10.5
@@ -39,8 +39,8 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dlclark/regexp2 v1.11.0 // indirect
 	github.com/facebookgo/clock v0.0.0-20150410010913-600d898af40a // indirect
-	github.com/fogfish/golem/hseq v1.2.0 // indirect
-	github.com/fogfish/golem/optics v0.13.1 // indirect
+	github.com/fogfish/golem/hseq v1.3.0 // indirect
+	github.com/fogfish/golem/optics v0.14.0 // indirect
 	github.com/go-openapi/errors v0.22.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/mock v1.6.0 // indirect

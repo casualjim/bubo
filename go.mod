@@ -22,7 +22,7 @@ require (
 	github.com/tidwall/gjson v1.18.0
 	github.com/tidwall/sjson v1.2.5
 	github.com/wk8/go-ordered-map/v2 v2.1.8
-	go.temporal.io/api v1.43.2
+	go.temporal.io/api v1.45.0
 	go.temporal.io/sdk v1.32.1
 	mvdan.cc/gofumpt v0.7.0
 )
@@ -86,6 +86,6 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20240827150818-7e3bb234dfed // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240827150818-7e3bb234dfed // indirect
 	google.golang.org/grpc v1.66.0 // indirect
-	google.golang.org/protobuf v1.34.2 // indirect
+	google.golang.org/protobuf v1.36.5 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

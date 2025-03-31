@@ -73,7 +73,7 @@ jobs:
       # Static code analysis using golangci-lint
       # Enforces code quality standards defined in .golangci.yml
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v7
         with:
           version: latest
           args: --timeout=5m

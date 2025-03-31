@@ -1,7 +1,6 @@
 module github.com/casualjim/bubo
 
 go 1.23.3
-
 require (
 	github.com/alphadose/haxmap v1.4.1
 	github.com/charmbracelet/glamour v0.8.0
@@ -15,7 +14,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/k0kubun/pp/v3 v3.4.1
 	github.com/nats-io/nats.go v1.38.0
-	github.com/openai/openai-go v0.1.0-alpha.52
+	github.com/openai/openai-go v0.1.0-beta.3
 	github.com/phsym/zeroslog v0.2.0
 	github.com/rs/zerolog v1.33.0
 	github.com/stretchr/testify v1.10.0

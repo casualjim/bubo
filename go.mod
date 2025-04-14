@@ -14,7 +14,7 @@ require (
 	github.com/invopop/jsonschema v0.13.0
 	github.com/joho/godotenv v1.5.1
 	github.com/k0kubun/pp/v3 v3.4.1
-	github.com/nats-io/nats.go v1.38.0
+	github.com/nats-io/nats.go v1.41.1
 	github.com/openai/openai-go v0.1.0-alpha.52
 	github.com/phsym/zeroslog v0.2.0
 	github.com/rs/zerolog v1.33.0
@@ -49,7 +49,7 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.22.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
-	github.com/klauspost/compress v1.17.9 // indirect
+	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
